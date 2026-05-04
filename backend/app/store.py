@@ -282,6 +282,37 @@ class AppStore:
             value = 90
         return max(30, value)
 
+    @classmethod
+    def _inactive_bot_alert_enabled(cls) -> bool:
+        return cls._env_flag("INACTIVE_BOT_ALERT_ENABLED", default=True)
+
+    @staticmethod
+    def _inactive_bot_alert_days() -> int:
+        raw_value = str(os.getenv("INACTIVE_BOT_ALERT_DAYS", "10")).strip()
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            value = 10
+        return max(1, value)
+
+    @staticmethod
+    def _inactive_bot_alert_hour() -> int:
+        raw_value = str(os.getenv("INACTIVE_BOT_ALERT_HOUR", "8")).strip()
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            value = 8
+        return max(0, min(23, value))
+
+    @staticmethod
+    def _inactive_bot_alert_minute() -> int:
+        raw_value = str(os.getenv("INACTIVE_BOT_ALERT_MINUTE", "0")).strip()
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            value = 0
+        return max(0, min(59, value))
+
     @staticmethod
     def _telegram_alert_bot_token() -> str:
         return str(os.getenv("TELEGRAM_ALERT_BOT_TOKEN", "")).strip()
@@ -360,6 +391,7 @@ class AppStore:
         self._worker_state_lock = RLock()
         self._monitor_stop_event = Event()
         self._monitor_thread: Thread | None = None
+        self.inactive_bot_alert_last_sent_on: str | None = None
 
         self.users = [
             UserSummary(id="admin-1", username="admin", display_name="Admin", role="admin"),
@@ -1069,6 +1101,7 @@ class AppStore:
             "worker_registration_meta": self._serialize_value(self.worker_registration_meta),
             "worker_operation_tasks": self._serialize_value(self.worker_operation_tasks),
             "deleted_workers": self._serialize_value(self.deleted_workers),
+            "inactive_bot_alert_last_sent_on": self.inactive_bot_alert_last_sent_on,
             "render_delete_meta": self._serialize_value(self.render_delete_meta),
         }
 
@@ -1107,6 +1140,9 @@ class AppStore:
             payload.get("worker_operation_tasks") or []
         )
         self.deleted_workers = self._restore_deleted_workers(payload.get("deleted_workers") or {})
+        self.inactive_bot_alert_last_sent_on = (
+            str(payload.get("inactive_bot_alert_last_sent_on") or "").strip() or None
+        )
 
         render_meta = payload.get("render_delete_meta") or {}
         self.render_delete_meta = {
@@ -2068,6 +2104,7 @@ class AppStore:
                     self._reconcile_expired_worker_jobs(now=now)
                     self._reconcile_expired_live_streams(now=now)
                     self._reconcile_live_worker_connectivity(now=now)
+                    self._reconcile_inactive_bot_daily_alert(now=now)
             except Exception as exc:
                 print(f"[worker_monitor] reconcile failed: {exc}", flush=True)
 
@@ -2883,6 +2920,303 @@ class AppStore:
             if self._send_telegram_live_alert(message, chat_id=chat_id):
                 delivered = True
         return delivered
+
+    @staticmethod
+    def _worker_aliases(worker: WorkerRecord) -> set[str]:
+        return {
+            alias
+            for alias in {str(worker.id or "").strip(), str(worker.name or "").strip()}
+            if alias
+        }
+
+    def _safe_parse_datetime(self, value: Any) -> datetime | None:
+        try:
+            return self._parse_datetime(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _assignment_created_at(self, link: dict[str, Any], worker: WorkerRecord) -> datetime | None:
+        return self._safe_parse_datetime(link.get("created_at")) or worker.created_at or worker.last_seen_at
+
+    def _upload_assignment_last_job_created_at(self, *, user_id: str, worker: WorkerRecord) -> datetime | None:
+        worker_aliases = self._worker_aliases(worker)
+        linked_channel_ids = {
+            str(link.get("channel_id") or "").strip()
+            for link in self.channel_user_links
+            if str(link.get("user_id") or "").strip() == user_id
+        }
+        worker_channel_ids = {
+            channel.id
+            for channel in self.channels
+            if channel.id in linked_channel_ids and str(channel.worker_id or "").strip() in worker_aliases
+        }
+        created_values = [
+            job.created_at
+            for job in self.jobs
+            if job.channel_id in worker_channel_ids and str(job.worker_name or "").strip() in worker_aliases
+        ]
+        return max(created_values, default=None)
+
+    def _live_assignment_last_stream_created_at(
+        self,
+        *,
+        user_id: str,
+        worker_id: str,
+        live_role: str,
+    ) -> datetime | None:
+        normalized_worker_id = str(worker_id or "").strip()
+        normalized_role = self._normalize_live_assignment_role(live_role)
+        created_values: list[datetime] = []
+        for stream in self.live_streams:
+            if bool(stream.is_runtime_clone):
+                continue
+            if str(stream.owner_user_id or "").strip() != user_id:
+                continue
+            if normalized_role == "backup":
+                if str(stream.backup_worker_id or "").strip() != normalized_worker_id:
+                    continue
+            elif str(stream.primary_worker_id or "").strip() != normalized_worker_id:
+                continue
+            created_values.append(stream.created_at)
+        return max(created_values, default=None)
+
+    def _inactive_bot_manager_scope(self, worker: WorkerRecord, user: UserSummary) -> tuple[str | None, str]:
+        manager_name = str(worker.manager_name or "").strip()
+        manager_id = str(worker.manager_id or "").strip() or None
+        if not manager_id and manager_name:
+            manager_id = self._manager_username_to_id_map().get(manager_name)
+        if not manager_name and manager_id:
+            manager_name = self._manager_username_from_id(manager_id) or ""
+        if not manager_name and user.role == "user":
+            manager_id = manager_id or self._resolved_user_manager_id(user)
+            manager_name = self._manager_username_from_id(manager_id) or str(user.manager_name or "").strip()
+        return manager_id, manager_name or "system"
+
+    def _inactive_bot_record(
+        self,
+        *,
+        user: UserSummary,
+        worker: WorkerRecord,
+        workspace: str,
+        bot_type: str,
+        bot_type_label: str,
+        assignment_created_at: datetime | None,
+        last_job_created_at: datetime | None,
+        now: datetime,
+    ) -> dict[str, Any]:
+        manager_id, manager_name = self._inactive_bot_manager_scope(worker, user)
+        activity_values = [value for value in (last_job_created_at, assignment_created_at) if value is not None]
+        activity_at = max(activity_values, default=None)
+        inactive_days = max(0, (now - activity_at).days) if activity_at else 0
+        return {
+            "workspace": workspace,
+            "bot_type": bot_type,
+            "bot_type_label": bot_type_label,
+            "worker_id": worker.id,
+            "worker_name": self._resolve_live_worker_display_name(worker.id)
+            if workspace == "live"
+            else self._resolve_worker_display_name(worker.id),
+            "user_id": user.id,
+            "username": user.username,
+            "user_display_name": user.display_name or user.username,
+            "manager_id": manager_id,
+            "manager_name": manager_name,
+            "assignment_created_at": assignment_created_at,
+            "last_job_created_at": last_job_created_at,
+            "last_activity_at": activity_at,
+            "inactive_days": inactive_days,
+        }
+
+    def get_inactive_bot_allocations(
+        self,
+        *,
+        now: datetime | None = None,
+        days: int | None = None,
+    ) -> list[dict[str, Any]]:
+        normalized_now = self._normalize_datetime(now) if now is not None else self._now(trim=False)
+        threshold_days = max(1, int(days if days is not None else self._inactive_bot_alert_days()))
+        cutoff = normalized_now - timedelta(days=threshold_days)
+        inactive_records: list[dict[str, Any]] = []
+
+        for link in self.user_worker_links:
+            user_id = str(link.get("user_id") or "").strip()
+            worker_id = str(link.get("worker_id") or "").strip()
+            if not user_id or not worker_id:
+                continue
+            try:
+                user = self._find_user(user_id)
+                worker = self._find_worker(worker_id)
+            except KeyError:
+                continue
+            assignment_created_at = self._assignment_created_at(link, worker)
+            last_job_created_at = self._upload_assignment_last_job_created_at(user_id=user.id, worker=worker)
+            last_activity_at = max(
+                [value for value in (last_job_created_at, assignment_created_at) if value is not None],
+                default=None,
+            )
+            if last_activity_at is not None and last_activity_at >= cutoff:
+                continue
+            inactive_records.append(
+                self._inactive_bot_record(
+                    user=user,
+                    worker=worker,
+                    workspace="upload",
+                    bot_type="upload",
+                    bot_type_label="BOT upload",
+                    assignment_created_at=assignment_created_at,
+                    last_job_created_at=last_job_created_at,
+                    now=normalized_now,
+                )
+            )
+
+        for link in self.live_user_worker_links:
+            user_id = str(link.get("user_id") or "").strip()
+            worker_id = str(link.get("worker_id") or "").strip()
+            if not user_id or not worker_id:
+                continue
+            try:
+                user = self._find_user(user_id)
+                worker = self._find_live_worker(worker_id)
+            except KeyError:
+                continue
+            live_role = self._normalize_live_assignment_role(link.get("live_role"), fallback_note=link.get("note"))
+            assignment_created_at = self._assignment_created_at(link, worker)
+            last_job_created_at = self._live_assignment_last_stream_created_at(
+                user_id=user.id,
+                worker_id=worker.id,
+                live_role=live_role,
+            )
+            last_activity_at = max(
+                [value for value in (last_job_created_at, assignment_created_at) if value is not None],
+                default=None,
+            )
+            if last_activity_at is not None and last_activity_at >= cutoff:
+                continue
+            inactive_records.append(
+                self._inactive_bot_record(
+                    user=user,
+                    worker=worker,
+                    workspace="live",
+                    bot_type="live_backup" if live_role == "backup" else "live_primary",
+                    bot_type_label="BOT backup" if live_role == "backup" else "BOT live chính",
+                    assignment_created_at=assignment_created_at,
+                    last_job_created_at=last_job_created_at,
+                    now=normalized_now,
+                )
+            )
+
+        return sorted(
+            inactive_records,
+            key=lambda item: (
+                str(item.get("manager_name") or ""),
+                str(item.get("username") or ""),
+                str(item.get("workspace") or ""),
+                str(item.get("bot_type") or ""),
+                str(item.get("worker_name") or ""),
+            ),
+        )
+
+    def _inactive_bot_alert_due(self, *, now: datetime) -> bool:
+        if not self._inactive_bot_alert_enabled():
+            return False
+        sent_on = str(self.inactive_bot_alert_last_sent_on or "").strip()
+        today_key = now.date().isoformat()
+        if sent_on == today_key:
+            return False
+        scheduled_at = now.replace(
+            hour=self._inactive_bot_alert_hour(),
+            minute=self._inactive_bot_alert_minute(),
+            second=0,
+            microsecond=0,
+        )
+        return now >= scheduled_at
+
+    def _inactive_bot_alert_message(
+        self,
+        records: list[dict[str, Any]],
+        *,
+        now: datetime,
+        days: int,
+        scope_label: str,
+    ) -> str:
+        lines = [
+            f"[CẢNH BÁO] BOT không hoạt động quá {days} ngày",
+            f"Tổng BOT: {len(records)}",
+            f"Phạm vi: {scope_label}",
+            f"Thời điểm kiểm tra: {self._format_full_datetime(now)}",
+            "",
+            "Danh sách BOT:",
+        ]
+        max_rows = 20
+        for item in records[:max_rows]:
+            last_job_label = (
+                self._format_full_datetime(item.get("last_job_created_at"))
+                if item.get("last_job_created_at")
+                else "chưa có job"
+            )
+            assigned_label = self._format_full_datetime(item.get("assignment_created_at"))
+            lines.extend(
+                [
+                    f"- {item.get('bot_type_label')}: {item.get('worker_name')} ({item.get('worker_id')})",
+                    f"  User: {item.get('username')} | Manager: {item.get('manager_name')}",
+                    f"  Job gần nhất: {last_job_label} | Ngày cấp: {assigned_label}",
+                    f"  Không hoạt động: {item.get('inactive_days')} ngày",
+                ]
+            )
+        remaining = len(records) - max_rows
+        if remaining > 0:
+            lines.append(f"... còn {remaining} BOT khác.")
+        return "\n".join(lines)
+
+    def _reconcile_inactive_bot_daily_alert(self, *, now: datetime) -> bool:
+        normalized_now = self._normalize_datetime(now) or self._now(trim=False)
+        if not self._inactive_bot_alert_due(now=normalized_now):
+            return False
+
+        threshold_days = self._inactive_bot_alert_days()
+        inactive_records = self.get_inactive_bot_allocations(now=normalized_now, days=threshold_days)
+        today_key = normalized_now.date().isoformat()
+        if not inactive_records:
+            self.inactive_bot_alert_last_sent_on = today_key
+            self._save_state()
+            return True
+
+        delivered = False
+        admin_message = self._inactive_bot_alert_message(
+            inactive_records,
+            now=normalized_now,
+            days=threshold_days,
+            scope_label="toàn bộ BOT",
+        )
+        if self._notify_telegram_chat_ids(self._all_admin_telegram_recipient_chat_ids(), admin_message):
+            delivered = True
+
+        records_by_manager: dict[str, list[dict[str, Any]]] = {}
+        for item in inactive_records:
+            manager_name = str(item.get("manager_name") or "").strip()
+            if not manager_name or manager_name == "system":
+                continue
+            records_by_manager.setdefault(manager_name, []).append(item)
+
+        for manager_name in sorted(records_by_manager):
+            manager_records = records_by_manager[manager_name]
+            manager_message = self._inactive_bot_alert_message(
+                manager_records,
+                now=normalized_now,
+                days=threshold_days,
+                scope_label=f"manager {manager_name}",
+            )
+            if self._notify_telegram_chat_ids(
+                self._manager_telegram_recipient_chat_ids({manager_name}),
+                manager_message,
+            ):
+                delivered = True
+
+        if delivered:
+            self.inactive_bot_alert_last_sent_on = today_key
+            self._save_state()
+            return True
+        return False
 
     def _worker_offline_message(self, worker: WorkerRecord, *, now: datetime) -> str:
         worker_name = worker.name or worker.id
@@ -11875,6 +12209,7 @@ class AppStore:
                             "threads": normalized_threads,
                             "live_role": selected_role,
                             "note": self._live_assignment_note(selected_role),
+                            "created_at": self._now(trim=False),
                         }
                     )
                     next_id += 1
@@ -12135,6 +12470,7 @@ class AppStore:
                                 "threads": self._fixed_assignment_threads(),
                                 "bot_type": "1080p",
                                 "note": "VPS được cấp",
+                                "created_at": self._now(trim=False),
                             }
                         )
                         next_id += 1
@@ -12174,6 +12510,7 @@ class AppStore:
                             "threads": self._fixed_assignment_threads(),
                             "bot_type": "1080p",
                             "note": "VPS được cấp",
+                            "created_at": self._now(trim=False),
                         }
                     )
                 else:
@@ -12295,6 +12632,7 @@ class AppStore:
                             "threads": self._fixed_assignment_threads(),
                             "bot_type": "1080p",
                             "note": "VPS được cấp",
+                            "created_at": self._now(trim=False),
                         }
                     )
                     next_id += 1
@@ -12334,6 +12672,7 @@ class AppStore:
                         "threads": self._fixed_assignment_threads(),
                         "bot_type": "1080p",
                         "note": "VPS được cấp",
+                        "created_at": self._now(trim=False),
                     }
                 )
             else:
@@ -12428,6 +12767,7 @@ class AppStore:
                         ),
                         "bot_type": str((previous_link or {}).get("bot_type") or "1080p").strip() or "1080p",
                         "note": str((previous_link or {}).get("note") or "").strip() or "VPS được cấp",
+                        "created_at": (previous_link or {}).get("created_at") or self._now(trim=False),
                     }
                 )
                 next_id += 1
@@ -12555,6 +12895,7 @@ class AppStore:
                     "threads": self._fixed_assignment_threads(),
                     "bot_type": bot_type.lower(),
                     "note": normalized_note,
+                    "created_at": self._now(trim=False),
                 }
             )
 

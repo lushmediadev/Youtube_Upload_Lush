@@ -47,6 +47,7 @@
 | DEC-041 | Quan tri quota live phai theo safe policy: khong duoc ha quota hoac go assignment xuong thap hon so luong active hien tai cua user tren BOT; stream dang chay khong bi kill, quota moi chi co the ap khi runtime da co ve muc an toan | Active | live admin assignment + runtime safety | High |
 | DEC-042 | Live worker duoc phep chay nhieu stream fast-path, nhung normalize media phai serialize theo tung worker/VPS (`1 normalize slot` mac dinh); stream khong can normalize van tiep tuc `copy` song song | Active | live runtime stability + CPU isolation | High |
 | DEC-043 | VPS migration cho control-plane dung fresh Git checkout + runtime data copy; BOT worker duoc bootstrap/add lai rieng sau khi control-plane moi verify | Active | infra migration | High |
+| DEC-044 | Inactive BOT alert chay hang ngay luc 8h sang, dem allocation `user + BOT` khong co upload/live job moi qua 10 ngay va route Telegram theo `admin all + manager owner` | Active | backend ops notifications | Medium |
 
 ## Notes
 - `docs/DECISIONS.md` van giu full history va ly do chi tiet.

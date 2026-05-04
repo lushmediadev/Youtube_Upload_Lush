@@ -170,11 +170,11 @@ def _worker_decommission_command_timeout_seconds() -> int:
 
 
 def _worker_install_max_concurrency() -> int:
-    raw_value = str(os.getenv("WORKER_INSTALL_MAX_CONCURRENCY", "2")).strip()
+    raw_value = str(os.getenv("WORKER_INSTALL_MAX_CONCURRENCY", "4")).strip()
     try:
         value = int(raw_value)
     except (TypeError, ValueError):
-        value = 2
+        value = 4
     return max(1, value)
 
 

@@ -1,4 +1,5 @@
 import os
+import json
 import unittest
 from datetime import datetime, timedelta
 
@@ -12,6 +13,7 @@ class TestableStore(AppStore):
     def __init__(self) -> None:
         self.sent_alerts: list[tuple[str | None, str]] = []
         self.saved_count = 0
+        self.telegram_send_result = True
         super().__init__()
 
     def _ensure_state_db(self) -> None:
@@ -37,7 +39,7 @@ class TestableStore(AppStore):
 
     def _send_telegram_alert(self, message: str, *, chat_id: str | None = None) -> bool:
         self.sent_alerts.append((chat_id, message))
-        return True
+        return self.telegram_send_result
 
 
 def make_worker(worker_id: str, manager_id: str, manager_name: str, created_at: datetime) -> WorkerRecord:
@@ -241,6 +243,81 @@ class InactiveBotAlertTests(unittest.TestCase):
 
         self.store._reconcile_inactive_bot_daily_alert(now=datetime(2026, 5, 4, 8, 30))
         self.assertEqual(len(self.store.sent_alerts), 3)
+
+    def test_daily_alert_routes_manager_by_id_when_worker_manager_name_is_display_label(self) -> None:
+        old = self.now - timedelta(days=20)
+        self.store.users[1] = UserSummary(
+            id="manager-1",
+            username="manager-alpha",
+            display_name="Manager Alpha",
+            role="manager",
+        )
+        self.store.user_meta["manager-1"] = {"telegram": "200"}
+        self.store.workers = [
+            make_worker("worker-alpha", "manager-1", "Manager Alpha", old),
+        ]
+        self.store.user_worker_links = [
+            {"id": 1, "user_id": "user-1", "worker_id": "worker-alpha", "created_at": old},
+        ]
+
+        self.store._reconcile_inactive_bot_daily_alert(now=self.now)
+
+        self.assertEqual([chat_id for chat_id, _ in self.store.sent_alerts], ["100", "200"])
+
+    def test_failed_daily_alert_is_attempted_once_per_day(self) -> None:
+        old = self.now - timedelta(days=20)
+        self.store.telegram_send_result = False
+        self.store.workers = [
+            make_worker("worker-alpha", "manager-1", "manager-alpha", old),
+        ]
+        self.store.user_worker_links = [
+            {"id": 1, "user_id": "user-1", "worker_id": "worker-alpha", "created_at": old},
+        ]
+
+        self.store._reconcile_inactive_bot_daily_alert(now=self.now)
+        self.store._reconcile_inactive_bot_daily_alert(now=datetime(2026, 5, 4, 8, 30))
+
+        self.assertEqual(len(self.store.sent_alerts), 2)
+        self.assertEqual(self.store.inactive_bot_alert_last_attempted_on, "2026-05-04")
+        self.assertIsNone(self.store.inactive_bot_alert_last_sent_on)
+
+    def test_notify_telegram_chat_ids_splits_long_messages(self) -> None:
+        long_message = "\n".join([f"line-{index}-" + ("x" * 500) for index in range(12)])
+
+        delivered = self.store._notify_telegram_chat_ids(["100"], long_message)
+
+        self.assertTrue(delivered)
+        self.assertGreater(len(self.store.sent_alerts), 1)
+        self.assertTrue(all(len(message) <= self.store.TELEGRAM_MESSAGE_CHUNK_LIMIT for _, message in self.store.sent_alerts))
+
+    def test_state_serializes_datetime_mapping_links_created_by_bot_assignment(self) -> None:
+        created_at = datetime(2026, 5, 4, 8, 15)
+        self.store.user_worker_links = [
+            {
+                "id": 1,
+                "user_id": "user-1",
+                "worker_id": "worker-upload",
+                "threads": 1,
+                "bot_type": "1080p",
+                "note": "VPS được cấp",
+                "created_at": created_at,
+            }
+        ]
+        self.store.live_user_worker_links = [
+            {
+                "id": 2,
+                "user_id": "user-1",
+                "worker_id": "live-worker",
+                "live_role": "primary",
+                "created_at": created_at,
+            }
+        ]
+
+        payload = self.store._serialize_state()
+
+        json.dumps(payload, ensure_ascii=False)
+        self.assertEqual(payload["user_worker_links"][0]["created_at"], "2026-05-04T08:15:00")
+        self.assertEqual(payload["live_user_worker_links"][0]["created_at"], "2026-05-04T08:15:00")
 
 
 if __name__ == "__main__":

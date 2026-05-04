@@ -63,6 +63,8 @@ logger = logging.getLogger(__name__)
 
 
 class AppStore:
+    TELEGRAM_MESSAGE_CHUNK_LIMIT = 3800
+
     KNOWN_WORKER_DISPLAY_NAMES = {
         "worker-01": "109.123.233.131",
         "worker-02": "62.72.46.42",
@@ -392,6 +394,7 @@ class AppStore:
         self._monitor_stop_event = Event()
         self._monitor_thread: Thread | None = None
         self.inactive_bot_alert_last_sent_on: str | None = None
+        self.inactive_bot_alert_last_attempted_on: str | None = None
 
         self.users = [
             UserSummary(id="admin-1", username="admin", display_name="Admin", role="admin"),
@@ -1086,22 +1089,23 @@ class AppStore:
             "users": [user.model_dump(mode="json") for user in self.users],
             "user_meta": self._serialize_value(self.user_meta),
             "workers": [worker.model_dump(mode="json") for worker in self.workers],
-            "user_worker_links": deepcopy(self.user_worker_links),
+            "user_worker_links": self._serialize_value(self.user_worker_links),
             "live_workers": [worker.model_dump(mode="json") for worker in self.live_workers],
-            "live_user_worker_links": deepcopy(self.live_user_worker_links),
+            "live_user_worker_links": self._serialize_value(self.live_user_worker_links),
             "channels": [channel.model_dump(mode="json") for channel in self.channels],
-            "channel_user_links": deepcopy(self.channel_user_links),
+            "channel_user_links": self._serialize_value(self.channel_user_links),
             "jobs": [job.model_dump(mode="json") for job in self.jobs],
             "live_streams": [stream.model_dump(mode="json") for stream in self.live_streams],
             "upload_sessions": [session.model_dump(mode="json") for session in self.upload_sessions],
             "browser_sessions": [session.model_dump(mode="json") for session in self.browser_sessions],
-            "browser_profile_cleanup_tasks": deepcopy(self.browser_profile_cleanup_tasks),
-            "worker_round_robin_cursor": deepcopy(self.worker_round_robin_cursor),
+            "browser_profile_cleanup_tasks": self._serialize_value(self.browser_profile_cleanup_tasks),
+            "worker_round_robin_cursor": self._serialize_value(self.worker_round_robin_cursor),
             "worker_connection_profiles": self._serialize_value(self.worker_connection_profiles),
             "worker_registration_meta": self._serialize_value(self.worker_registration_meta),
             "worker_operation_tasks": self._serialize_value(self.worker_operation_tasks),
             "deleted_workers": self._serialize_value(self.deleted_workers),
             "inactive_bot_alert_last_sent_on": self.inactive_bot_alert_last_sent_on,
+            "inactive_bot_alert_last_attempted_on": self.inactive_bot_alert_last_attempted_on,
             "render_delete_meta": self._serialize_value(self.render_delete_meta),
         }
 
@@ -1142,6 +1146,9 @@ class AppStore:
         self.deleted_workers = self._restore_deleted_workers(payload.get("deleted_workers") or {})
         self.inactive_bot_alert_last_sent_on = (
             str(payload.get("inactive_bot_alert_last_sent_on") or "").strip() or None
+        )
+        self.inactive_bot_alert_last_attempted_on = (
+            str(payload.get("inactive_bot_alert_last_attempted_on") or "").strip() or None
         )
 
         render_meta = payload.get("render_delete_meta") or {}
@@ -2098,13 +2105,13 @@ class AppStore:
         interval_seconds = self._worker_monitor_interval_seconds()
         while not self._monitor_stop_event.wait(interval_seconds):
             try:
+                now = self._now(trim=False)
                 with self._worker_state_lock:
-                    now = self._now(trim=False)
                     self._reconcile_worker_connectivity(now=now)
                     self._reconcile_expired_worker_jobs(now=now)
                     self._reconcile_expired_live_streams(now=now)
                     self._reconcile_live_worker_connectivity(now=now)
-                    self._reconcile_inactive_bot_daily_alert(now=now)
+                self._reconcile_inactive_bot_daily_alert(now=now)
             except Exception as exc:
                 print(f"[worker_monitor] reconcile failed: {exc}", flush=True)
 
@@ -2860,6 +2867,18 @@ class AppStore:
         ]
         return self._telegram_recipient_chat_ids_for_users(manager_users)
 
+    def _manager_telegram_recipient_chat_ids_by_ids(self, manager_ids: set[str]) -> list[str]:
+        normalized_ids = {str(manager_id or "").strip() for manager_id in manager_ids}
+        normalized_ids.discard("")
+        if not normalized_ids:
+            return []
+        manager_users = [
+            user
+            for user in self.users
+            if user.role == "manager" and user.id in normalized_ids
+        ]
+        return self._telegram_recipient_chat_ids_for_users(manager_users)
+
     def _bot_owner_manager_telegram_recipient_chat_ids(self, task: dict[str, Any]) -> list[str]:
         manager_usernames: set[str] = set()
         manager_name = str(task.get("manager_name") or "").strip()
@@ -2904,10 +2923,35 @@ class AppStore:
         if not recipient_chat_ids:
             return False
         delivered = False
+        message_chunks = self._telegram_message_chunks(message)
         for chat_id in recipient_chat_ids:
-            if self._send_telegram_alert(message, chat_id=chat_id):
-                delivered = True
+            for message_chunk in message_chunks:
+                if self._send_telegram_alert(message_chunk, chat_id=chat_id):
+                    delivered = True
         return delivered
+
+    @classmethod
+    def _telegram_message_chunks(cls, message: str) -> list[str]:
+        normalized_message = str(message or "")
+        if len(normalized_message) <= cls.TELEGRAM_MESSAGE_CHUNK_LIMIT:
+            return [normalized_message]
+        chunks: list[str] = []
+        current = ""
+        for line in normalized_message.splitlines():
+            candidate = line if not current else f"{current}\n{line}"
+            if len(candidate) <= cls.TELEGRAM_MESSAGE_CHUNK_LIMIT:
+                current = candidate
+                continue
+            if current:
+                chunks.append(current)
+                current = ""
+            while len(line) > cls.TELEGRAM_MESSAGE_CHUNK_LIMIT:
+                chunks.append(line[: cls.TELEGRAM_MESSAGE_CHUNK_LIMIT])
+                line = line[cls.TELEGRAM_MESSAGE_CHUNK_LIMIT :]
+            current = line
+        if current or not chunks:
+            chunks.append(current)
+        return chunks
 
     def _notify_live_telegram_chat_ids(self, chat_ids: list[str], message: str) -> bool:
         if not self._telegram_live_notifications_enabled():
@@ -3119,9 +3163,12 @@ class AppStore:
     def _inactive_bot_alert_due(self, *, now: datetime) -> bool:
         if not self._inactive_bot_alert_enabled():
             return False
-        sent_on = str(self.inactive_bot_alert_last_sent_on or "").strip()
         today_key = now.date().isoformat()
+        sent_on = str(self.inactive_bot_alert_last_sent_on or "").strip()
         if sent_on == today_key:
+            return False
+        attempted_on = str(self.inactive_bot_alert_last_attempted_on or "").strip()
+        if attempted_on == today_key:
             return False
         scheduled_at = now.replace(
             hour=self._inactive_bot_alert_hour(),
@@ -3170,51 +3217,83 @@ class AppStore:
 
     def _reconcile_inactive_bot_daily_alert(self, *, now: datetime) -> bool:
         normalized_now = self._normalize_datetime(now) or self._now(trim=False)
-        if not self._inactive_bot_alert_due(now=normalized_now):
-            return False
-
-        threshold_days = self._inactive_bot_alert_days()
-        inactive_records = self.get_inactive_bot_allocations(now=normalized_now, days=threshold_days)
         today_key = normalized_now.date().isoformat()
-        if not inactive_records:
-            self.inactive_bot_alert_last_sent_on = today_key
+
+        with self._worker_state_lock:
+            if not self._inactive_bot_alert_due(now=normalized_now):
+                return False
+
+            threshold_days = self._inactive_bot_alert_days()
+            inactive_records = self.get_inactive_bot_allocations(now=normalized_now, days=threshold_days)
+            self.inactive_bot_alert_last_attempted_on = today_key
+            if not inactive_records:
+                self.inactive_bot_alert_last_sent_on = today_key
+                self._save_state()
+                return True
+
+            notification_batches: list[tuple[list[str], str]] = [
+                (
+                    self._all_admin_telegram_recipient_chat_ids(),
+                    self._inactive_bot_alert_message(
+                        inactive_records,
+                        now=normalized_now,
+                        days=threshold_days,
+                        scope_label="toàn bộ BOT",
+                    ),
+                )
+            ]
+
+            records_by_manager_id: dict[str, list[dict[str, Any]]] = {}
+            records_by_manager_name: dict[str, list[dict[str, Any]]] = {}
+            for item in inactive_records:
+                manager_id = str(item.get("manager_id") or "").strip()
+                manager_name = str(item.get("manager_name") or "").strip()
+                if manager_id:
+                    records_by_manager_id.setdefault(manager_id, []).append(item)
+                    continue
+                if manager_name and manager_name != "system":
+                    records_by_manager_name.setdefault(manager_name, []).append(item)
+
+            for manager_id in sorted(records_by_manager_id):
+                manager_records = records_by_manager_id[manager_id]
+                manager_name = str(manager_records[0].get("manager_name") or manager_id).strip()
+                notification_batches.append(
+                    (
+                        self._manager_telegram_recipient_chat_ids_by_ids({manager_id}),
+                        self._inactive_bot_alert_message(
+                            manager_records,
+                            now=normalized_now,
+                            days=threshold_days,
+                            scope_label=f"manager {manager_name}",
+                        ),
+                    )
+                )
+
+            for manager_name in sorted(records_by_manager_name):
+                manager_records = records_by_manager_name[manager_name]
+                notification_batches.append(
+                    (
+                        self._manager_telegram_recipient_chat_ids({manager_name}),
+                        self._inactive_bot_alert_message(
+                            manager_records,
+                            now=normalized_now,
+                            days=threshold_days,
+                            scope_label=f"manager {manager_name}",
+                        ),
+                    )
+                )
+
             self._save_state()
-            return True
 
         delivered = False
-        admin_message = self._inactive_bot_alert_message(
-            inactive_records,
-            now=normalized_now,
-            days=threshold_days,
-            scope_label="toàn bộ BOT",
-        )
-        if self._notify_telegram_chat_ids(self._all_admin_telegram_recipient_chat_ids(), admin_message):
-            delivered = True
-
-        records_by_manager: dict[str, list[dict[str, Any]]] = {}
-        for item in inactive_records:
-            manager_name = str(item.get("manager_name") or "").strip()
-            if not manager_name or manager_name == "system":
-                continue
-            records_by_manager.setdefault(manager_name, []).append(item)
-
-        for manager_name in sorted(records_by_manager):
-            manager_records = records_by_manager[manager_name]
-            manager_message = self._inactive_bot_alert_message(
-                manager_records,
-                now=normalized_now,
-                days=threshold_days,
-                scope_label=f"manager {manager_name}",
-            )
-            if self._notify_telegram_chat_ids(
-                self._manager_telegram_recipient_chat_ids({manager_name}),
-                manager_message,
-            ):
+        for chat_ids, message in notification_batches:
+            if self._notify_telegram_chat_ids(chat_ids, message):
                 delivered = True
 
         if delivered:
-            self.inactive_bot_alert_last_sent_on = today_key
-            self._save_state()
+            with self._worker_state_lock:
+                self.inactive_bot_alert_last_sent_on = today_key
+                self._save_state()
             return True
         return False
 

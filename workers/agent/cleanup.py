@@ -109,6 +109,7 @@ def cleanup_stale_worker_artifacts(config: WorkerConfig) -> dict[str, int]:
             "removed_live_stream_dirs": 0,
             "removed_output_files": 0,
             "removed_browser_upload_runtime_dirs": 0,
+            "removed_browser_upload_download_dirs": 0,
             "killed_stray_xvfb": 0,
         }
 
@@ -130,6 +131,7 @@ def cleanup_stale_worker_artifacts(config: WorkerConfig) -> dict[str, int]:
     removed_live_stream_dirs = 0
     removed_output_files = 0
     removed_browser_upload_runtime_dirs = 0
+    removed_browser_upload_download_dirs = 0
 
     work_root = config.work_root
     for job_dir in sorted(work_root.glob("job-*")):
@@ -160,6 +162,16 @@ def cleanup_stale_worker_artifacts(config: WorkerConfig) -> dict[str, int]:
             if _safe_remove_tree(runtime_dir):
                 removed_browser_upload_runtime_dirs += 1
 
+    browser_upload_download_root = Path.home() / "Downloads" / "youtube-upload-lush"
+    if browser_upload_download_root.exists():
+        for upload_dir in sorted(browser_upload_download_root.iterdir()):
+            if not upload_dir.is_dir():
+                continue
+            if not _is_older_than(upload_dir, cutoff_ts=temp_cutoff):
+                continue
+            if _safe_remove_tree(upload_dir):
+                removed_browser_upload_download_dirs += 1
+
     outputs_dir = work_root / "outputs"
     if outputs_dir.exists():
         for output_file in sorted(outputs_dir.iterdir()):
@@ -176,5 +188,6 @@ def cleanup_stale_worker_artifacts(config: WorkerConfig) -> dict[str, int]:
         "removed_live_stream_dirs": removed_live_stream_dirs,
         "removed_output_files": removed_output_files,
         "removed_browser_upload_runtime_dirs": removed_browser_upload_runtime_dirs,
+        "removed_browser_upload_download_dirs": removed_browser_upload_download_dirs,
         "killed_stray_xvfb": killed_stray_xvfb,
     }

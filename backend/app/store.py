@@ -2106,11 +2106,14 @@ class AppStore:
         while not self._monitor_stop_event.wait(interval_seconds):
             try:
                 now = self._now(trim=False)
+                upload_interruption_notifications: list[tuple[list[str], str]] = []
                 with self._worker_state_lock:
                     self._reconcile_worker_connectivity(now=now)
-                    self._reconcile_expired_worker_jobs(now=now)
+                    _, upload_interruption_notifications = self._reconcile_expired_worker_jobs(now=now)
                     self._reconcile_expired_live_streams(now=now)
                     self._reconcile_live_worker_connectivity(now=now)
+                for chat_ids, message in upload_interruption_notifications:
+                    self._notify_live_telegram_chat_ids(chat_ids, message)
                 self._reconcile_inactive_bot_daily_alert(now=now)
             except Exception as exc:
                 print(f"[worker_monitor] reconcile failed: {exc}", flush=True)
@@ -2743,6 +2746,30 @@ class AppStore:
             lines.append(f"Chi tiết: {normalized_reason}")
         return "\n".join(lines)
 
+    def _job_upload_interrupted_message(
+        self,
+        job: RenderJobRecord,
+        *,
+        now: datetime,
+        reason: str,
+    ) -> str:
+        upload_progress = max(int(job.upload_progress or 0), int(job.progress or 0))
+        worker_label = str(job.worker_name or job.claimed_by_worker_id or "-").strip() or "-"
+        normalized_reason = str(reason or "").strip()
+        lines = [
+            "[UPLOAD] Job upload bị gián đoạn",
+            f"Job: {job.title}",
+            f"Kênh: {job.channel_name or job.channel_id}",
+            f"BOT: {worker_label}",
+            f"Upload đã ghi nhận: {upload_progress}%",
+            f"Thời điểm: {self._format_full_datetime(now)}",
+            "Trạng thái: Worker mất kết nối hoặc restart trong lúc upload. Hệ thống đã dừng retry tự động để tránh upload trùng video.",
+            "Cần kiểm tra YouTube Studio xem có bản nháp hoặc upload dở trước khi tạo lại job.",
+        ]
+        if normalized_reason:
+            lines.append(f"Chi tiết: {normalized_reason}")
+        return "\n".join(lines)
+
     @staticmethod
     def _bot_operation_actor_label(role: str | None, username: str | None) -> str:
         normalized_username = str(username or "").strip() or "system"
@@ -2828,6 +2855,13 @@ class AppStore:
     def _live_stream_recipient_chat_ids(self, stream: LiveStreamRecord) -> list[str]:
         visible_stream = self._visible_live_stream_for_notification(stream)
         chat_id = self._user_telegram_live_chat_id(visible_stream.owner_user_id)
+        return [chat_id] if chat_id else []
+
+    def _job_upload_interruption_recipient_chat_ids(self, job: RenderJobRecord) -> list[str]:
+        user_id = self._job_user_id(job)
+        if not user_id:
+            return []
+        chat_id = self._user_telegram_live_chat_id(user_id)
         return [chat_id] if chat_id else []
 
     def _live_stream_fallback_alert_chat_ids(self, stream: LiveStreamRecord) -> list[str]:
@@ -4974,6 +5008,7 @@ class AppStore:
 
     def heartbeat_worker(self, payload: WorkerHeartbeatPayload) -> WorkerControlResponse:
         reconnect_notification: tuple[list[str], str] | None = None
+        upload_interruption_notifications: list[tuple[list[str], str]] = []
         with self._worker_state_lock:
             worker = self._authenticate_worker(payload.worker_id, payload.shared_secret)
             now = self._now(trim=False)
@@ -5002,16 +5037,20 @@ class AppStore:
             if payload.browser_debug_port_base is not None:
                 worker.browser_debug_port_base = payload.browser_debug_port_base
             if payload.active_job_ids is None:
-                self._reconcile_worker_jobs_from_heartbeat(
-                    worker,
-                    active_job_ids=[],
-                    now=now,
+                upload_interruption_notifications.extend(
+                    self._reconcile_worker_jobs_from_heartbeat(
+                        worker,
+                        active_job_ids=[],
+                        now=now,
+                    )
                 )
             else:
-                self._reconcile_worker_jobs_from_heartbeat(
-                    worker,
-                    active_job_ids=payload.active_job_ids,
-                    now=now,
+                upload_interruption_notifications.extend(
+                    self._reconcile_worker_jobs_from_heartbeat(
+                        worker,
+                        active_job_ids=payload.active_job_ids,
+                        now=now,
+                    )
                 )
             if self._count_worker_running_jobs(worker) > 0:
                 worker.status = "busy"
@@ -5021,6 +5060,8 @@ class AppStore:
             snapshot = deepcopy(worker)
         if reconnect_notification is not None:
             self._notify_telegram_chat_ids(reconnect_notification[0], reconnect_notification[1])
+        for chat_ids, message in upload_interruption_notifications:
+            self._notify_live_telegram_chat_ids(chat_ids, message)
         return WorkerControlResponse(ok=True, worker=snapshot)
 
     def claim_next_job(self, worker_id: str, shared_secret: str) -> tuple[WorkerRecord, RenderJobRecord | None]:
@@ -7965,7 +8006,7 @@ class AppStore:
         *,
         now: datetime,
         reason: str,
-    ) -> None:
+    ) -> tuple[list[str], str] | None:
         if job.status == "uploading":
             if self._upload_interruption_looks_requeueable(job):
                 self._release_worker_job_claim(
@@ -7973,7 +8014,7 @@ class AppStore:
                     reset_status="pending",
                     message=f"{reason} Job được đưa lại hàng chờ vì upload mới bắt đầu.",
                 )
-                return
+                return None
             job.status = "error"
             job.completed_at = now
             job.can_cancel = False
@@ -7986,15 +8027,20 @@ class AppStore:
                 f"{reason} Job đang ở pha upload đã tiến xa, "
                 "nên được đánh dấu lỗi để tránh upload trùng video."
             )
-            return
+            chat_ids = self._job_upload_interruption_recipient_chat_ids(job)
+            if not chat_ids:
+                return None
+            return (chat_ids, self._job_upload_interrupted_message(job, now=now, reason=reason))
         self._release_worker_job_claim(
             job,
             reset_status="pending",
             message=f"{reason} Job được đưa lại hàng chờ để worker nhận lại sau khi kết nối ổn định.",
         )
+        return None
 
-    def _reconcile_expired_worker_jobs(self, *, now: datetime) -> bool:
+    def _reconcile_expired_worker_jobs(self, *, now: datetime) -> tuple[bool, list[tuple[list[str], str]]]:
         changed = False
+        notifications: list[tuple[list[str], str]] = []
         active_statuses = self._worker_active_job_statuses()
         for job in self.jobs:
             if job.status not in active_statuses:
@@ -8003,16 +8049,18 @@ class AppStore:
                 continue
             if job.lease_expires_at is None or job.lease_expires_at > now:
                 continue
-            self._handle_interrupted_worker_job(
+            notification_payload = self._handle_interrupted_worker_job(
                 job,
                 now=now,
                 reason="Control-plane không nhận được heartbeat/progress của worker trong thời gian grace.",
             )
+            if notification_payload is not None:
+                notifications.append(notification_payload)
             changed = True
         if changed:
             self._refresh_queue_positions()
             self._save_state()
-        return changed
+        return changed, notifications
 
     def _reconcile_expired_live_streams(self, *, now: datetime) -> bool:
         changed = False
@@ -8043,7 +8091,8 @@ class AppStore:
         *,
         active_job_ids: list[str],
         now: datetime,
-    ) -> None:
+    ) -> list[tuple[list[str], str]]:
+        notifications: list[tuple[list[str], str]] = []
         active_job_id_set = {str(job_id).strip() for job_id in active_job_ids if str(job_id).strip()}
         for job in self.jobs:
             if job.claimed_by_worker_id != worker.id or job.status not in self._worker_active_job_statuses():
@@ -8053,12 +8102,15 @@ class AppStore:
                 continue
             if job.lease_expires_at is not None and job.lease_expires_at > now:
                 continue
-            self._handle_interrupted_worker_job(
+            notification_payload = self._handle_interrupted_worker_job(
                 job,
                 now=now,
                 reason="Worker không còn báo job này trong heartbeat sau khi đã qua grace window.",
             )
+            if notification_payload is not None:
+                notifications.append(notification_payload)
         self._refresh_queue_positions()
+        return notifications
 
     def _job_username(self, job: RenderJobRecord) -> str:
         user_id = self._job_user_id(job)

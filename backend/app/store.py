@@ -4721,6 +4721,14 @@ class AppStore:
             return None, None
 
         ordered_candidates = sorted(candidates, key=lambda item: (item.queue_order or 10_000, item.created_at))
+        first_queue_order = ordered_candidates[0].queue_order
+        if first_queue_order is not None:
+            top_queue_candidates = [job for job in ordered_candidates if job.queue_order == first_queue_order]
+            if len(top_queue_candidates) == 1:
+                selected_job = top_queue_candidates[0]
+                return selected_job, self._job_dispatch_owner_key(selected_job)
+            ordered_candidates = top_queue_candidates
+
         owner_order: list[str] = []
         jobs_by_owner: dict[str, list[RenderJobRecord]] = {}
         for job in ordered_candidates:

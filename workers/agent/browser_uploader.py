@@ -417,29 +417,19 @@ def _fill_upload_metadata(
     wait: WebDriverWait,
     *,
     title: str,
-    description: str | None,
 ) -> None:
     expected_title = _normalize_title(title)
-    expected_description = re.sub(r"\s+", " ", str(description or "").strip())
     last_error: Exception | None = None
     for _ in range(4):
         try:
-            title_box, description_box = _find_title_and_description_boxes(driver, wait)
+            title_box, _ = _find_title_and_description_boxes(driver, wait)
             _set_textbox(driver, title_box, title)
-            if description_box is not None:
-                _set_textbox(driver, description_box, description or "")
             time.sleep(0.4)
             current_title = _normalize_title(_read_textbox_value(driver, title_box))
             if current_title != expected_title:
                 continue
-            if description_box is not None:
-                current_description = _read_textbox_value(driver, description_box)
-                if expected_description and current_description != expected_description:
-                    continue
             try:
                 driver.execute_script("arguments[0].blur();", title_box)
-                if description_box is not None:
-                    driver.execute_script("arguments[0].blur();", description_box)
             except Exception:
                 pass
             return
@@ -448,8 +438,8 @@ def _fill_upload_metadata(
             time.sleep(0.5)
             continue
     if last_error:
-        raise RuntimeError("Khong the xac nhan title/description trong YouTube Studio upload dialog.") from last_error
-    raise RuntimeError("Khong the xac nhan title/description trong YouTube Studio upload dialog.")
+        raise RuntimeError("Khong the xac nhan title trong YouTube Studio upload dialog.") from last_error
+    raise RuntimeError("Khong the xac nhan title trong YouTube Studio upload dialog.")
 
 
 def _find_title_and_description_boxes(driver: webdriver.Chrome, wait: WebDriverWait) -> tuple[object, object | None]:
@@ -1169,12 +1159,11 @@ def upload_video_via_browser(
             driver,
             wait,
             title=target.title,
-            description=target.description or "",
         )
         upload_committed = True
         _raise_if_upload_blocked(driver)
         if progress_callback:
-            progress_callback(0.05, "Da dien title va description")
+            progress_callback(0.05, "Da dien title")
 
         _click_when_available(
             driver,

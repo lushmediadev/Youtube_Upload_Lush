@@ -9836,6 +9836,9 @@ class AppStore:
         queue_order = max([job.queue_order or 0 for job in self.jobs], default=0) + 1
         created_at = self._now()
         normalize = lambda value: (value or "").strip() or None
+        normalized_title = re.sub(r"\s+", " ", str(payload.title or "").strip())
+        if not normalized_title:
+            raise ValueError("Tên video là bắt buộc.")
 
         resolved_asset_ids = {
             "intro": normalize(payload.intro_asset_id),
@@ -9894,7 +9897,7 @@ class AppStore:
 
         job = RenderJobRecord(
             id=f"job-{uuid4().hex[:8]}",
-            title=payload.title,
+            title=normalized_title,
             description=payload.description,
             source_mode="local" if has_local_asset else "drive",
             channel_id=channel.id,

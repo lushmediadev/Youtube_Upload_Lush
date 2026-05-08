@@ -2770,6 +2770,27 @@ class AppStore:
             lines.append(f"Chi tiết: {normalized_reason}")
         return "\n".join(lines)
 
+    def _job_upload_completed_message(
+        self,
+        job: RenderJobRecord,
+        *,
+        now: datetime,
+    ) -> str:
+        worker_label = str(job.worker_name or job.claimed_by_worker_id or "-").strip() or "-"
+        lines = [
+            "[UPLOAD] Job upload hoàn thành",
+            f"Job: {job.title}",
+            f"Kênh: {job.channel_name or job.channel_id}",
+            f"BOT: {worker_label}",
+            f"Hoàn thành lúc: {self._format_full_datetime(now)}",
+        ]
+        if job.output_url:
+            lines.append(f"Video: {job.output_url}")
+        status_message = str(job.status_message or "").strip()
+        if status_message:
+            lines.append(f"Trạng thái: {status_message}")
+        return "\n".join(lines)
+
     @staticmethod
     def _bot_operation_actor_label(role: str | None, username: str | None) -> str:
         normalized_username = str(username or "").strip() or "system"
@@ -5178,6 +5199,7 @@ class AppStore:
         output_url: str | None = None,
         message: str | None = None,
     ) -> RenderJobRecord:
+        notification_payload: tuple[list[str], str] | None = None
         with self._worker_state_lock:
             worker = self._authenticate_worker(worker_id, shared_secret)
             job = self._find_claimed_job(job_id, worker_id)
@@ -5199,9 +5221,15 @@ class AppStore:
             self._sync_worker_runtime_status(worker)
             if job.upload_started_at:
                 self._cleanup_uploaded_assets_for_job(job, exclude_job_id=job.id)
+                chat_ids = self._job_upload_interruption_recipient_chat_ids(job)
+                if chat_ids:
+                    notification_payload = (chat_ids, self._job_upload_completed_message(job, now=now))
             self._refresh_queue_positions()
             self._save_state()
-            return deepcopy(job)
+            snapshot = deepcopy(job)
+        if notification_payload is not None:
+            self._notify_live_telegram_chat_ids(notification_payload[0], notification_payload[1])
+        return snapshot
 
     def fail_worker_job(self, *, job_id: str, worker_id: str, shared_secret: str, message: str) -> RenderJobRecord:
         with self._worker_state_lock:

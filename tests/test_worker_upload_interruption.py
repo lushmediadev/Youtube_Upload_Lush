@@ -149,6 +149,27 @@ class WorkerUploadInterruptionTests(unittest.TestCase):
         self.assertIn("74%", message)
         self.assertIn("62.169.23.112", message)
 
+    def test_completed_upload_notifies_user_live_telegram(self) -> None:
+        self.store.jobs = [make_job(progress=100)]
+
+        completed = self.store.complete_worker_job(
+            job_id="job-1",
+            worker_id="worker-1",
+            shared_secret=self.store.get_worker_shared_secret(),
+            output_url="https://www.youtube.com/watch?v=abc123",
+            message="YouTube da xac nhan video upload o che do ban nhap",
+        )
+
+        self.assertEqual(completed.status, "completed")
+        self.assertEqual(completed.upload_progress, 100)
+        self.assertEqual(len(self.store.sent_live_alerts), 1)
+        chat_id, message = self.store.sent_live_alerts[0]
+        self.assertEqual(chat_id, "900")
+        self.assertIn("[UPLOAD] Job upload hoàn thành", message)
+        self.assertIn("Aurelian Nocturne", message)
+        self.assertIn("62.169.23.112", message)
+        self.assertIn("https://www.youtube.com/watch?v=abc123", message)
+
 
 if __name__ == "__main__":
     unittest.main()

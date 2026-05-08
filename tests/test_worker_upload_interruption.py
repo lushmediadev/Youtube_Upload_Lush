@@ -144,10 +144,13 @@ class WorkerUploadInterruptionTests(unittest.TestCase):
         self.assertEqual(len(self.store.sent_live_alerts), 1)
         chat_id, message = self.store.sent_live_alerts[0]
         self.assertEqual(chat_id, "900")
-        self.assertIn("[UPLOAD] Job upload bị gián đoạn", message)
+        self.assertIn("[UPLOAD] Job upload bị lỗi", message)
         self.assertIn("Aurelian Nocturne", message)
         self.assertIn("74%", message)
         self.assertIn("62.169.23.112", message)
+        self.assertIn("Trạng thái: Lỗi do bot bị restart mất hoặc mất mạng mất kết nối", message)
+        self.assertIn("Vui lòng xoá Job lỗi và tạo lại Job upload mới", message)
+        self.assertNotIn("Chi tiết:", message)
 
     def test_completed_upload_notifies_user_live_telegram(self) -> None:
         self.store.jobs = [make_job(progress=100)]
@@ -168,7 +171,8 @@ class WorkerUploadInterruptionTests(unittest.TestCase):
         self.assertIn("[UPLOAD] Job upload hoàn thành", message)
         self.assertIn("Aurelian Nocturne", message)
         self.assertIn("62.169.23.112", message)
-        self.assertIn("https://www.youtube.com/watch?v=abc123", message)
+        self.assertNotIn("Video:", message)
+        self.assertNotIn("Trạng thái:", message)
 
 
 if __name__ == "__main__":

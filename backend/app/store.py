@@ -2755,19 +2755,16 @@ class AppStore:
     ) -> str:
         upload_progress = max(int(job.upload_progress or 0), int(job.progress or 0))
         worker_label = str(job.worker_name or job.claimed_by_worker_id or "-").strip() or "-"
-        normalized_reason = str(reason or "").strip()
         lines = [
-            "[UPLOAD] Job upload bị gián đoạn",
+            "[UPLOAD] Job upload bị lỗi",
             f"Job: {job.title}",
             f"Kênh: {job.channel_name or job.channel_id}",
             f"BOT: {worker_label}",
             f"Upload đã ghi nhận: {upload_progress}%",
             f"Thời điểm: {self._format_full_datetime(now)}",
-            "Trạng thái: Worker mất kết nối hoặc restart trong lúc upload. Hệ thống đã dừng retry tự động để tránh upload trùng video.",
-            "Cần kiểm tra YouTube Studio xem có bản nháp hoặc upload dở trước khi tạo lại job.",
+            "Trạng thái: Lỗi do bot bị restart mất hoặc mất mạng mất kết nối",
+            "Vui lòng xoá Job lỗi và tạo lại Job upload mới",
         ]
-        if normalized_reason:
-            lines.append(f"Chi tiết: {normalized_reason}")
         return "\n".join(lines)
 
     def _job_upload_completed_message(
@@ -2784,11 +2781,6 @@ class AppStore:
             f"BOT: {worker_label}",
             f"Hoàn thành lúc: {self._format_full_datetime(now)}",
         ]
-        if job.output_url:
-            lines.append(f"Video: {job.output_url}")
-        status_message = str(job.status_message or "").strip()
-        if status_message:
-            lines.append(f"Trạng thái: {status_message}")
         return "\n".join(lines)
 
     @staticmethod

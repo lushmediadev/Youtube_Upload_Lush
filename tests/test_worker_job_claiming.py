@@ -166,6 +166,69 @@ class WorkerJobClaimingTests(unittest.TestCase):
         self.assertEqual(self.store.jobs[1].status, "pending")
         self.assertEqual(self.store.jobs[2].status, "queueing")
 
+    def test_claim_position_projection_matches_multi_owner_rotation(self) -> None:
+        first_owner_oldest_job = make_job(
+            "job-vd5",
+            "vd 5",
+            "channel-coffee",
+            "Coffee Jazz Moments",
+            queue_order=1,
+            created_at=datetime(2026, 5, 8, 14, 4),
+        )
+        second_owner_first_job = make_job(
+            "job-dreamy-1",
+            "DreamyForestJazz 1",
+            "channel-forest",
+            "Dreamy Forest Jazz",
+            queue_order=2,
+            created_at=datetime(2026, 5, 8, 15, 3),
+        )
+        second_owner_second_job = make_job(
+            "job-dreamy-2",
+            "DreamyForestJazz 2",
+            "channel-forest",
+            "Dreamy Forest Jazz",
+            queue_order=3,
+            created_at=datetime(2026, 5, 8, 15, 5),
+        )
+        self.store.jobs = [first_owner_oldest_job, second_owner_second_job, second_owner_first_job]
+        self.store.worker_round_robin_cursor["worker-11"] = "user:user-hoangmai"
+
+        positions = self.store._upload_claim_position_by_job_id(now=datetime(2026, 5, 8, 15, 10))
+
+        self.assertEqual(
+            positions,
+            {
+                "job-dreamy-1": 1,
+                "job-vd5": 2,
+                "job-dreamy-2": 3,
+            },
+        )
+
+    def test_claim_position_projection_uses_queue_order_for_single_owner(self) -> None:
+        older_waiting_job = make_job(
+            "job-vd5",
+            "vd 5",
+            "channel-coffee",
+            "Coffee Jazz Moments",
+            queue_order=1,
+            created_at=datetime(2026, 5, 8, 14, 4),
+        )
+        newer_same_owner_job = make_job(
+            "job-vd6",
+            "vd 6",
+            "channel-coffee",
+            "Coffee Jazz Moments",
+            queue_order=2,
+            created_at=datetime(2026, 5, 8, 15, 3),
+        )
+        self.store.jobs = [newer_same_owner_job, older_waiting_job]
+        self.store.worker_round_robin_cursor["worker-11"] = "user:user-hoangmai"
+
+        positions = self.store._upload_claim_position_by_job_id(now=datetime(2026, 5, 8, 15, 10))
+
+        self.assertEqual(positions, {"job-vd5": 1, "job-vd6": 2})
+
 
 if __name__ == "__main__":
     unittest.main()

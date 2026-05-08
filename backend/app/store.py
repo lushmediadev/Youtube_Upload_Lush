@@ -4716,6 +4716,8 @@ class AppStore:
         self,
         worker: WorkerRecord,
         candidates: list[RenderJobRecord],
+        *,
+        last_owner_key: str | None = None,
     ) -> tuple[RenderJobRecord | None, str | None]:
         if not candidates:
             return None, None
@@ -4736,9 +4738,13 @@ class AppStore:
             selected_job = ordered_candidates[0]
             return selected_job, owner_order[0]
 
-        last_owner_key = str(self.worker_round_robin_cursor.get(worker.id) or "").strip()
-        if last_owner_key and last_owner_key in owner_order:
-            start_index = (owner_order.index(last_owner_key) + 1) % len(owner_order)
+        effective_last_owner_key = (
+            str(last_owner_key or "").strip()
+            if last_owner_key is not None
+            else str(self.worker_round_robin_cursor.get(worker.id) or "").strip()
+        )
+        if effective_last_owner_key and effective_last_owner_key in owner_order:
+            start_index = (owner_order.index(effective_last_owner_key) + 1) % len(owner_order)
         else:
             start_index = 0
 
@@ -4749,6 +4755,37 @@ class AppStore:
                 return owner_jobs[0], owner_key
 
         return ordered_candidates[0], self._job_dispatch_owner_key(ordered_candidates[0])
+
+    def _upload_claim_position_by_job_id(self, *, now: datetime | None = None) -> dict[str, int]:
+        current = now or self._now()
+        positions: dict[str, int] = {}
+        for worker in self.workers:
+            worker_aliases = {str(worker.id or "").strip(), str(worker.name or "").strip()}
+            worker_aliases.discard("")
+            candidates = [
+                job
+                for job in self.jobs
+                if str(job.worker_name or "").strip() in worker_aliases
+                and job.status in {"pending", "queueing"}
+                and (job.scheduled_at is None or job.scheduled_at <= current)
+                and (job.claimed_by_worker_id is None or (job.lease_expires_at and job.lease_expires_at <= current))
+            ]
+            last_owner_key = str(self.worker_round_robin_cursor.get(worker.id) or "").strip()
+            position = 1
+            while candidates:
+                job, owner_key = self._pick_worker_round_robin_job(
+                    worker,
+                    candidates,
+                    last_owner_key=last_owner_key,
+                )
+                if job is None:
+                    break
+                positions[job.id] = position
+                candidates = [candidate for candidate in candidates if candidate.id != job.id]
+                if owner_key:
+                    last_owner_key = owner_key
+                position += 1
+        return positions
 
     def _count_worker_running_jobs(self, worker: WorkerRecord) -> int:
         worker_aliases = {worker.id, worker.name, self._resolve_worker_display_name(worker.id)}
@@ -8203,6 +8240,7 @@ class AppStore:
         rendering_jobs = [job for job in jobs_response.jobs if job.status == "rendering"]
         uploading_jobs = [job for job in jobs_response.jobs if job.status == "uploading"]
         failed_jobs = [job for job in jobs_response.jobs if job.status == "error"]
+        claim_positions = self._upload_claim_position_by_job_id(now=now)
 
         channels = [
             {"value": "", "label": "-- Chọn kênh --", "meta": "", "avatar": "", "avatar_class": "", "is_active": True, "is_placeholder": True}
@@ -8295,7 +8333,11 @@ class AppStore:
                     "channel_avatar": self._initials(job.channel_name),
                     "channel_avatar_url": job.channel_avatar_url,
                     "channel_name": job.channel_name,
-                    "queue_label": f"Queue #{job.queue_order or index}",
+                    "queue_label": (
+                        f"Queue #{claim_positions[job.id]}"
+                        if job.id in claim_positions
+                        else ("Hẹn giờ" if scheduled_waiting else f"Job #{index}")
+                    ),
                     "bot": worker_display_name,
                     "bot_meta": bot_meta,
                     "owner": job.manager_name or "-",
@@ -13635,6 +13677,7 @@ class AppStore:
 
         selected_manager_ids = set(self._selected_manager_ids(manager_ids))
         job_source = list(self.jobs)
+        claim_positions = self._upload_claim_position_by_job_id()
         if selected_manager_ids:
             job_source = [
                 job for job in job_source
@@ -13673,7 +13716,7 @@ class AppStore:
                     "completed_at": self._format_full_datetime(job.completed_at),
                     "status_label": status_label,
                     "status_class": status_class,
-                    "queue_order": job.queue_order or "-",
+                    "queue_order": claim_positions.get(job.id, "-"),
                 }
             )
 

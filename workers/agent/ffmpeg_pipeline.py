@@ -266,6 +266,9 @@ def render_job_assets(
     for slot, media in probed.items():
         if slot in {"intro", "video_loop", "outro"} and slot in video_sources:
             if not media.has_video:
+                audio_marker = " MP3" if str(media.audio_codec or "").strip().lower() == "mp3" else ""
+                if audio_marker:
+                    raise ValueError(f"Asset {slot} đang là file{audio_marker}, không có video stream.")
                 raise ValueError(f"Asset {slot} không có video stream.")
             if media.frame_rate is not None and media.frame_rate != round(media.frame_rate):
                 raise ValueError(f"Asset {slot} có FPS không phải số nguyên ({media.frame_rate}).")

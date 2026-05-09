@@ -2783,6 +2783,52 @@ class AppStore:
         ]
         return "\n".join(lines)
 
+    def _summarize_job_upload_error_message(self, error_message: str | None) -> str | None:
+        normalized = self._normalize_live_optional_text(error_message)
+        if not normalized:
+            return None
+
+        lowered = normalized.casefold()
+        video_slot_markers = (
+            "asset video_loop",
+            "asset intro",
+            "asset outro",
+            "link video",
+            "video_loop",
+        )
+        if (
+            "không có video stream" in lowered
+            or "khong co video stream" in lowered
+            or "stream map '0:v:0' matches no streams" in lowered
+        ) and any(marker in lowered for marker in video_slot_markers):
+            if "mp3" in lowered or "audio" in lowered:
+                return "Link video đang nhập là link file MP3, vui lòng sửa lại link file thành video."
+            return "Link video không có video stream hợp lệ, vui lòng đổi sang file video."
+        return None
+
+    def _job_upload_error_message(
+        self,
+        job: RenderJobRecord,
+        *,
+        now: datetime,
+        error_message: str,
+    ) -> str | None:
+        summary = self._summarize_job_upload_error_message(error_message)
+        if not summary:
+            return None
+        worker_label = str(job.worker_name or job.claimed_by_worker_id or "-").strip() or "-"
+        return "\n".join(
+            [
+                "[UPLOAD] Job upload gặp lỗi",
+                f"Tài khoản: {self._job_username(job)}",
+                f"Job: {job.title}",
+                f"Kênh: {job.channel_name or job.channel_id}",
+                f"BOT: {worker_label}",
+                f"Thời điểm: {self._format_full_datetime(now)}",
+                f"Lỗi: {summary}",
+            ]
+        )
+
     @staticmethod
     def _bot_operation_actor_label(role: str | None, username: str | None) -> str:
         normalized_username = str(username or "").strip() or "system"
@@ -5264,6 +5310,7 @@ class AppStore:
         return snapshot
 
     def fail_worker_job(self, *, job_id: str, worker_id: str, shared_secret: str, message: str) -> RenderJobRecord:
+        notification_payload: tuple[list[str], str] | None = None
         with self._worker_state_lock:
             worker = self._authenticate_worker(worker_id, shared_secret)
             job = self._find_claimed_job(job_id, worker_id)
@@ -5283,6 +5330,11 @@ class AppStore:
             job.error_message = message
             job.status_message = None
             job.lease_expires_at = None
+            notification_message = self._job_upload_error_message(job, now=now, error_message=message)
+            if notification_message:
+                chat_ids = self._job_upload_interruption_recipient_chat_ids(job)
+                if chat_ids:
+                    notification_payload = (chat_ids, notification_message)
             if job.upload_started_at:
                 job.download_progress = max(int(job.download_progress or 0), 100)
                 job.render_progress = max(int(job.render_progress or 0), 100)
@@ -5293,7 +5345,10 @@ class AppStore:
             self._sync_worker_runtime_status(worker)
             self._refresh_queue_positions()
             self._save_state()
-            return deepcopy(job)
+            snapshot = deepcopy(job)
+        if notification_payload is not None:
+            self._notify_live_telegram_chat_ids(notification_payload[0], notification_payload[1])
+        return snapshot
 
     def _authenticate_live_worker(self, worker_id: str, shared_secret: str) -> WorkerRecord:
         if shared_secret != self.get_worker_shared_secret():

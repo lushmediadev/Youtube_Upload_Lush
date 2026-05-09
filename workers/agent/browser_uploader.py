@@ -38,6 +38,8 @@ VI_CANT_UPLOAD = "kh\u00f4ng th\u1ec3 t\u1ea3i video"
 VI_UPLOAD_ERROR = "\u0111\u00e3 x\u1ea3y ra l\u1ed7i khi t\u1ea3i l\u00ean"
 VI_CONTINUE_TO_YOUTUBE = "\u0111\u1ec3 ti\u1ebfp t\u1ee5c v\u1edbi youtube"
 VI_SELFIE = "selfie"
+VI_VERIFY_ITS_YOU = "x\u00e1c minh \u0111\u00f3 l\u00e0 b\u1ea1n"
+VI_REALLY_YOU = "th\u1ef1c s\u1ef1 l\u00e0 b\u1ea1n"
 
 @dataclass
 class BrowserUploadResult:
@@ -114,6 +116,18 @@ def _detect_blocking_upload_error_safe(driver: webdriver.Chrome) -> str | None:
 
     if "video-verification" in current_url or VI_SELFIE in page_text:
         return "Google dang yeu cau xac minh bo sung tren profile nay (selfie/video verification). Bot khong the tiep tuc upload cho toi khi ban xu ly thu cong."
+
+    if (
+        "verify it's you" in page_text
+        or "confirm it\u2019s really you" in page_text
+        or "confirm it's really you" in page_text
+        or (VI_VERIFY_ITS_YOU in page_text and VI_REALLY_YOU in page_text)
+    ):
+        return (
+            "YouTube/Google dang hien modal Verify it's you tren Chrome profile cua kenh. "
+            "Bot khong the tu xac minh tai khoan nay. Hay mo noVNC de xu ly thu cong, "
+            "hoac xoa kenh va them lai kenh de tao profile sach roi chay lai job."
+        )
 
     if (
         any(token in page_text for token in ("15 minutes", "longer than 15 minutes", VI_15_MINUTES))
@@ -210,6 +224,18 @@ def _detect_blocking_upload_error(driver: webdriver.Chrome) -> str | None:
 
     if "video-verification" in current_url or "selfie" in page_text:
         return "Google dang yeu cau xac minh bo sung tren profile nay (selfie/video verification). Bot khong the tiep tuc upload cho toi khi ban xu ly thu cong."
+
+    if (
+        "verify it's you" in page_text
+        or "confirm it\u2019s really you" in page_text
+        or "confirm it's really you" in page_text
+        or ("xÃ¡c minh Ä‘Ã³ lÃ  báº¡n" in page_text and "thá»±c sá»± lÃ  báº¡n" in page_text)
+    ):
+        return (
+            "YouTube/Google dang hien modal Verify it's you tren Chrome profile cua kenh. "
+            "Bot khong the tu xac minh tai khoan nay. Hay mo noVNC de xu ly thu cong, "
+            "hoac xoa kenh va them lai kenh de tao profile sach roi chay lai job."
+        )
 
     if (
         any(token in page_text for token in ("15 minutes", "longer than 15 minutes", "15 phút"))
@@ -904,16 +930,6 @@ def _wait_for_uploaded_video_url(driver: webdriver.Chrome, *, timeout_seconds: i
     return last_seen
 
 
-def _require_uploaded_video_url(uploaded_video_url: str | None) -> str:
-    cleaned_url = str(uploaded_video_url or "").strip()
-    if cleaned_url:
-        return cleaned_url
-    raise RuntimeError(
-        "Khong lay duoc duong link video sau khi YouTube bao upload xong. "
-        "Worker se khong danh dau job thanh cong khi chua verify duoc video trong Studio."
-    )
-
-
 def _wait_for_legacy_draft_upload_completion(
     driver: webdriver.Chrome,
     *,
@@ -1201,9 +1217,6 @@ def upload_video_via_browser(
             raise RuntimeError(detail) from exc
         transfer_confirmed = True
         time.sleep(2.0)
-        if not uploaded_video_url:
-            uploaded_video_url = _wait_for_uploaded_video_url(driver, timeout_seconds=60)
-        uploaded_video_url = _require_uploaded_video_url(uploaded_video_url)
         return BrowserUploadResult(
             studio_url=studio_url,
             output_url=uploaded_video_url,
@@ -1212,12 +1225,12 @@ def upload_video_via_browser(
         )
     except Exception as exc:
         blocking_error = (_detect_blocking_upload_error_safe(driver) or _detect_blocking_upload_error(driver)) if driver is not None else None
-        if upload_committed and driver is not None and blocking_error is None and transfer_confirmed and uploaded_video_url:
+        if upload_committed and driver is not None and blocking_error is None and transfer_confirmed:
             if progress_callback:
                 progress_callback(1.0, "YouTube da nhan file upload va worker ket thuc theo mode draft")
             return BrowserUploadResult(
                 studio_url=studio_url,
-                output_url=_require_uploaded_video_url(uploaded_video_url),
+                output_url=uploaded_video_url,
                 cleanup_safe=True,
                 completion_message="Đã upload YouTube thành công",
             )

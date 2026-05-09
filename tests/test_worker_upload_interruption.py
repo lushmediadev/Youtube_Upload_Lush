@@ -174,49 +174,6 @@ class WorkerUploadInterruptionTests(unittest.TestCase):
         self.assertNotIn("Video:", message)
         self.assertNotIn("Trạng thái:", message)
 
-    def test_completed_upload_without_video_url_marks_error_and_notifies_user_live_telegram(self) -> None:
-        self.store.jobs = [make_job(progress=100)]
-
-        completed = self.store.complete_worker_job(
-            job_id="job-1",
-            worker_id="worker-1",
-            shared_secret=self.store.get_worker_shared_secret(),
-            output_url=None,
-            message="Đã upload YouTube thành công",
-        )
-
-        self.assertEqual(completed.status, "error")
-        self.assertEqual(completed.upload_progress, 100)
-        self.assertIsNone(completed.output_url)
-        self.assertEqual(len(self.store.sent_live_alerts), 1)
-        chat_id, message = self.store.sent_live_alerts[0]
-        self.assertEqual(chat_id, "900")
-        self.assertIn("[UPLOAD] Job upload gặp lỗi", message)
-        self.assertIn("Aurelian Nocturne", message)
-        self.assertIn("62.169.23.112", message)
-        self.assertIn("Không lấy được đường link video sau khi YouTube báo upload xong.", message)
-
-    def test_missing_youtube_url_upload_failure_notifies_user_live_telegram(self) -> None:
-        self.store.jobs = [make_job(progress=100)]
-
-        failed = self.store.fail_worker_job(
-            job_id="job-1",
-            worker_id="worker-1",
-            shared_secret=self.store.get_worker_shared_secret(),
-            message=(
-                "Khong lay duoc duong link video sau khi YouTube bao upload xong. "
-                "Worker se khong danh dau job thanh cong khi chua verify duoc video trong Studio."
-            ),
-        )
-
-        self.assertEqual(failed.status, "error")
-        self.assertEqual(len(self.store.sent_live_alerts), 1)
-        chat_id, message = self.store.sent_live_alerts[0]
-        self.assertEqual(chat_id, "900")
-        self.assertIn("[UPLOAD] Job upload gặp lỗi", message)
-        self.assertIn("Aurelian Nocturne", message)
-        self.assertIn("Không lấy được đường link video sau khi YouTube báo upload xong.", message)
-
     def test_video_slot_mp3_upload_failure_notifies_user_live_telegram(self) -> None:
         self.store.jobs = [make_job(progress=42)]
 

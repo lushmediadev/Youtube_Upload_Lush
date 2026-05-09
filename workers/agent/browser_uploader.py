@@ -61,12 +61,16 @@ def _read_visible_page_text(driver: webdriver.Chrome) -> str:
     snippets: list[str] = []
     seen: set[str] = set()
     for xpath in ("//ytcp-uploads-dialog", "//*[@role='dialog']"):
-        for element in driver.find_elements(By.XPATH, xpath):
+        try:
+            elements = driver.find_elements(By.XPATH, xpath)
+        except TimeoutException:
+            continue
+        for element in elements:
             try:
                 if not element.is_displayed():
                     continue
                 text = re.sub(r"\s+", " ", (element.text or "").strip())
-            except StaleElementReferenceException:
+            except (StaleElementReferenceException, TimeoutException):
                 continue
             if text:
                 if text in seen:
@@ -75,12 +79,16 @@ def _read_visible_page_text(driver: webdriver.Chrome) -> str:
                 snippets.append(text)
     if snippets:
         return " ".join(snippets)
-    for element in driver.find_elements(By.XPATH, "//body"):
+    try:
+        body_elements = driver.find_elements(By.XPATH, "//body")
+    except TimeoutException:
+        return ""
+    for element in body_elements:
         try:
             if not element.is_displayed():
                 continue
             text = re.sub(r"\s+", " ", (element.text or "").strip())
-        except StaleElementReferenceException:
+        except (StaleElementReferenceException, TimeoutException):
             continue
         if text:
             return text
@@ -93,12 +101,16 @@ def _read_upload_dialog_text(driver: webdriver.Chrome) -> str:
         "//ytcp-uploads-dialog",
         "//*[@role='dialog']",
     ):
-        for element in driver.find_elements(By.XPATH, xpath):
+        try:
+            elements = driver.find_elements(By.XPATH, xpath)
+        except TimeoutException:
+            continue
+        for element in elements:
             try:
                 if not element.is_displayed():
                     continue
                 text = re.sub(r"\s+", " ", (element.text or "").strip())
-            except StaleElementReferenceException:
+            except (StaleElementReferenceException, TimeoutException):
                 continue
             if text:
                 snippets.append(text)
@@ -789,12 +801,16 @@ def _extract_upload_ratio(driver: webdriver.Chrome) -> float | None:
         "//ytcp-uploads-dialog//*[self::span or self::div or self::p][contains(., '%') or contains(., 'Đã tải') or contains(., 'Uploading') or contains(., 'Uploaded')]",
         "//*[@role='dialog']//*[self::span or self::div or self::p][contains(., '%') or contains(., 'Đã tải') or contains(., 'Uploading') or contains(., 'Uploaded')]",
     ):
-        for element in driver.find_elements(By.XPATH, xpath):
+        try:
+            elements = driver.find_elements(By.XPATH, xpath)
+        except TimeoutException:
+            continue
+        for element in elements:
             try:
                 if not element.is_displayed():
                     continue
                 text = re.sub(r"\s+", " ", (element.text or "").strip())
-            except StaleElementReferenceException:
+            except (StaleElementReferenceException, TimeoutException):
                 continue
             if text:
                 candidate_texts.append(text)
@@ -821,10 +837,17 @@ def _extract_upload_ratio(driver: webdriver.Chrome) -> float | None:
         "//*[@aria-valuenow]",
         "//progress[@value]",
     ):
-        for element in driver.find_elements(By.XPATH, xpath):
-            if not element.is_displayed():
+        try:
+            elements = driver.find_elements(By.XPATH, xpath)
+        except TimeoutException:
+            continue
+        for element in elements:
+            try:
+                if not element.is_displayed():
+                    continue
+                raw_value = (element.get_attribute("aria-valuenow") or element.get_attribute("value") or "").strip()
+            except (StaleElementReferenceException, TimeoutException):
                 continue
-            raw_value = (element.get_attribute("aria-valuenow") or element.get_attribute("value") or "").strip()
             if not raw_value:
                 continue
             try:
@@ -847,11 +870,15 @@ def _has_cancel_upload_button(driver: webdriver.Chrome) -> bool:
         "//ytcp-button[contains(normalize-space(.), 'Hủy tải lên')]",
         "//ytcp-button[contains(normalize-space(.), 'Cancel upload')]",
     ):
-        for element in driver.find_elements(By.XPATH, xpath):
+        try:
+            elements = driver.find_elements(By.XPATH, xpath)
+        except TimeoutException:
+            continue
+        for element in elements:
             try:
                 if element.is_displayed():
                     return True
-            except StaleElementReferenceException:
+            except (StaleElementReferenceException, TimeoutException):
                 continue
     return False
 
@@ -862,12 +889,16 @@ def _extract_dialog_status_text(driver: webdriver.Chrome) -> str:
         "//ytcp-uploads-dialog//*[self::span or self::div or self::p][contains(., 'Đã tải') or contains(., 'Dang tai') or contains(., 'đang xử lý') or contains(., 'processing') or contains(., 'uploaded') or contains(., 'Còn')]",
         "//*[@role='dialog']//*[self::span or self::div or self::p][contains(., 'Đã tải') or contains(., 'Dang tai') or contains(., 'đang xử lý') or contains(., 'processing') or contains(., 'uploaded') or contains(., 'Còn')]",
     ):
-        for element in driver.find_elements(By.XPATH, xpath):
+        try:
+            elements = driver.find_elements(By.XPATH, xpath)
+        except TimeoutException:
+            continue
+        for element in elements:
             try:
                 if not element.is_displayed():
                     continue
                 text = re.sub(r"\s+", " ", (element.text or "").strip())
-            except StaleElementReferenceException:
+            except (StaleElementReferenceException, TimeoutException):
                 continue
             if text and len(text) <= 160:
                 snippets.append(text)
@@ -913,13 +944,17 @@ def _dialog_has_percent_marker(driver: webdriver.Chrome) -> bool:
 
 def _extract_uploaded_video_url(driver: webdriver.Chrome) -> str | None:
     for selector in (".video-url-fadeable", "a[href*='watch?v=']", "a[href*='youtu.be/']"):
-        for element in driver.find_elements(By.CSS_SELECTOR, selector):
+        try:
+            elements = driver.find_elements(By.CSS_SELECTOR, selector)
+        except TimeoutException:
+            continue
+        for element in elements:
             try:
                 if not element.is_displayed():
                     continue
                 href = (element.get_attribute("href") or "").strip()
                 text = (element.text or "").strip()
-            except StaleElementReferenceException:
+            except (StaleElementReferenceException, TimeoutException):
                 continue
             for candidate in (href, text):
                 match = re.search(r"(https?://(?:www\.)?(?:youtube\.com/watch\?v=[^\s&]+|youtu\.be/[^\s?&]+))", candidate, flags=re.IGNORECASE)

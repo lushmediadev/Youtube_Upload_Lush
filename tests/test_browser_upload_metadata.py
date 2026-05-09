@@ -89,6 +89,31 @@ class BrowserUploadMetadataTests(unittest.TestCase):
         self.assertIsNotNone(detected)
         self.assertIn("Verify it's you", detected)
 
+    def test_dialog_text_script_timeout_does_not_fail_upload_detection(self) -> None:
+        class TimeoutTextElement:
+            def is_displayed(self) -> bool:
+                return True
+
+            @property
+            def text(self) -> str:
+                raise browser_uploader.TimeoutException("script timeout")
+
+        class FakeDriver:
+            current_url = "https://studio.youtube.com/channel/UC-test/videos/upload?d=ud"
+
+            def find_elements(self, _by, xpath: str) -> list[TimeoutTextElement]:
+                if "ytcp-uploads-dialog" in xpath or "role='dialog'" in xpath:
+                    return [TimeoutTextElement()]
+                return []
+
+        detected = browser_uploader._detect_blocking_upload_error_safe(FakeDriver())
+        dialog_text = browser_uploader._read_upload_dialog_text(FakeDriver())
+        status_text = browser_uploader._extract_dialog_status_text(FakeDriver())
+
+        self.assertIsNone(detected)
+        self.assertEqual(dialog_text, "")
+        self.assertEqual(status_text, "")
+
     def test_fill_upload_metadata_sets_title_without_touching_description(self) -> None:
         calls: list[tuple[object, str]] = []
         title_box = object()

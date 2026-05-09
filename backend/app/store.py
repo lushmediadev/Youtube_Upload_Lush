@@ -2811,8 +2811,8 @@ class AppStore:
             or "bot khong the tu xac minh" in lowered
         ):
             return (
-                "YouTube/Google yeu cau Verify it's you. "
-                "Vui long mo noVNC de xac minh thu cong, hoac xoa kenh va them lai kenh de tao profile sach roi chay lai job."
+                "YouTube/Google yêu cầu Verify it's you. "
+                "Vui lòng xoá kênh và thêm lại kênh."
             )
         return None
 

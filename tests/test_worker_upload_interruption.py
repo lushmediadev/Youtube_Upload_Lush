@@ -214,9 +214,10 @@ class WorkerUploadInterruptionTests(unittest.TestCase):
         self.assertEqual(chat_id, "900")
         self.assertIn("[UPLOAD] Job upload", message)
         self.assertIn("Aurelian Nocturne", message)
-        self.assertIn("Verify it's you", message)
-        self.assertIn("noVNC", message)
-        self.assertIn("xoa kenh", message)
+        self.assertIn(
+            "Lỗi: YouTube/Google yêu cầu Verify it's you. Vui lòng xoá kênh và thêm lại kênh.",
+            message,
+        )
 
     def test_generic_upload_failure_does_not_send_media_specific_notification(self) -> None:
         self.store.jobs = [make_job(progress=42)]

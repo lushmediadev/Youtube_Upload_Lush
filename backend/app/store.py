@@ -2804,6 +2804,12 @@ class AppStore:
             if "mp3" in lowered or "audio" in lowered:
                 return "Link video đang nhập là link file MP3, vui lòng sửa lại link file thành video."
             return "Link video không có video stream hợp lệ, vui lòng đổi sang file video."
+        if (
+            "khong lay duoc duong link video" in lowered
+            or "không lấy được đường link video" in lowered
+            or "missing youtube video url" in lowered
+        ):
+            return "Không lấy được đường link video sau khi YouTube báo upload xong."
         return None
 
     def _job_upload_error_message(
@@ -5284,27 +5290,53 @@ class AppStore:
             self._ensure_worker_job_can_continue(job)
             now = self._now()
 
-            job.status = "completed"
-            job.progress = 100
-            job.completed_at = now
-            job.can_cancel = False
-            job.output_url = output_url
-            job.status_message = (message or "").strip() or None
-            job.error_message = None
-            job.lease_expires_at = None
-            job.download_progress = max(int(job.download_progress or 0), 100 if job.started_at or job.download_started_at else 0)
-            job.render_progress = max(int(job.render_progress or 0), 100 if job.started_at else 0)
-            if job.upload_started_at:
-                job.upload_progress = 100
-            self._sync_worker_runtime_status(worker)
-            if job.upload_started_at:
-                self._cleanup_uploaded_assets_for_job(job, exclude_job_id=job.id)
-                chat_ids = self._job_upload_interruption_recipient_chat_ids(job)
-                if chat_ids:
-                    notification_payload = (chat_ids, self._job_upload_completed_message(job, now=now))
-            self._refresh_queue_positions()
-            self._save_state()
-            snapshot = deepcopy(job)
+            missing_upload_url = bool(job.upload_started_at) and not str(output_url or "").strip()
+            if missing_upload_url:
+                error_message = (
+                    "Khong lay duoc duong link video sau khi YouTube bao upload xong. "
+                    "Worker se khong danh dau job thanh cong khi chua verify duoc video trong Studio."
+                )
+                job.status = "error"
+                job.completed_at = now
+                job.can_cancel = False
+                job.output_url = None
+                job.status_message = None
+                job.error_message = error_message
+                job.lease_expires_at = None
+                job.download_progress = max(int(job.download_progress or 0), 100 if job.started_at or job.download_started_at else 0)
+                job.render_progress = max(int(job.render_progress or 0), 100 if job.started_at else 0)
+                job.upload_progress = max(int(job.upload_progress or 0), 100)
+                self._sync_worker_runtime_status(worker)
+                notification_message = self._job_upload_error_message(job, now=now, error_message=error_message)
+                if notification_message:
+                    chat_ids = self._job_upload_interruption_recipient_chat_ids(job)
+                    if chat_ids:
+                        notification_payload = (chat_ids, notification_message)
+                self._refresh_queue_positions()
+                self._save_state()
+                snapshot = deepcopy(job)
+            else:
+                job.status = "completed"
+                job.progress = 100
+                job.completed_at = now
+                job.can_cancel = False
+                job.output_url = output_url
+                job.status_message = (message or "").strip() or None
+                job.error_message = None
+                job.lease_expires_at = None
+                job.download_progress = max(int(job.download_progress or 0), 100 if job.started_at or job.download_started_at else 0)
+                job.render_progress = max(int(job.render_progress or 0), 100 if job.started_at else 0)
+                if job.upload_started_at:
+                    job.upload_progress = 100
+                self._sync_worker_runtime_status(worker)
+                if job.upload_started_at:
+                    self._cleanup_uploaded_assets_for_job(job, exclude_job_id=job.id)
+                    chat_ids = self._job_upload_interruption_recipient_chat_ids(job)
+                    if chat_ids:
+                        notification_payload = (chat_ids, self._job_upload_completed_message(job, now=now))
+                self._refresh_queue_positions()
+                self._save_state()
+                snapshot = deepcopy(job)
         if notification_payload is not None:
             self._notify_live_telegram_chat_ids(notification_payload[0], notification_payload[1])
         return snapshot

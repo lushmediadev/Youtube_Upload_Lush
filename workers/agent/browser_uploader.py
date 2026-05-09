@@ -59,19 +59,31 @@ class UploadTransferTimeoutError(RuntimeError):
 
 def _read_visible_page_text(driver: webdriver.Chrome) -> str:
     snippets: list[str] = []
-    for xpath in (
-        "//ytcp-uploads-dialog",
-        "//*[@role='dialog']",
-        "//body",
-    ):
+    seen: set[str] = set()
+    for xpath in ("//ytcp-uploads-dialog", "//*[@role='dialog']"):
         for element in driver.find_elements(By.XPATH, xpath):
+            try:
+                if not element.is_displayed():
+                    continue
+                text = re.sub(r"\s+", " ", (element.text or "").strip())
+            except StaleElementReferenceException:
+                continue
+            if text:
+                if text in seen:
+                    continue
+                seen.add(text)
+                snippets.append(text)
+    if snippets:
+        return " ".join(snippets)
+    for element in driver.find_elements(By.XPATH, "//body"):
+        try:
             if not element.is_displayed():
                 continue
             text = re.sub(r"\s+", " ", (element.text or "").strip())
-            if text:
-                snippets.append(text)
-        if snippets:
-            break
+        except StaleElementReferenceException:
+            continue
+        if text:
+            return text
     return " ".join(snippets)
 
 
@@ -90,9 +102,7 @@ def _read_upload_dialog_text(driver: webdriver.Chrome) -> str:
                 continue
             if text:
                 snippets.append(text)
-        if snippets:
-            break
-    return " ".join(snippets)
+    return " ".join(dict.fromkeys(snippets))
 
 
 def _fold_text(text: str) -> str:

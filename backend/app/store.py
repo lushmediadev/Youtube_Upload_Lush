@@ -2804,6 +2804,16 @@ class AppStore:
             if "mp3" in lowered or "audio" in lowered:
                 return "Link video đang nhập là link file MP3, vui lòng sửa lại link file thành video."
             return "Link video không có video stream hợp lệ, vui lòng đổi sang file video."
+        if (
+            "verify it's you" in lowered
+            or "verify its you" in lowered
+            or "modal verify" in lowered
+            or "bot khong the tu xac minh" in lowered
+        ):
+            return (
+                "YouTube/Google yeu cau Verify it's you. "
+                "Vui long mo noVNC de xac minh thu cong, hoac xoa kenh va them lai kenh de tao profile sach roi chay lai job."
+            )
         return None
 
     def _job_upload_error_message(

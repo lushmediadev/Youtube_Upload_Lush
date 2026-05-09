@@ -194,6 +194,30 @@ class WorkerUploadInterruptionTests(unittest.TestCase):
         self.assertIn("62.169.23.112", message)
         self.assertIn("Link video đang nhập là link file MP3, vui lòng sửa lại link file thành video.", message)
 
+    def test_verify_its_you_upload_failure_notifies_user_live_telegram(self) -> None:
+        self.store.jobs = [make_job(progress=18)]
+
+        failed = self.store.fail_worker_job(
+            job_id="job-1",
+            worker_id="worker-1",
+            shared_secret=self.store.get_worker_shared_secret(),
+            message=(
+                "YouTube/Google dang hien modal Verify it's you tren Chrome profile cua kenh. "
+                "Bot khong the tu xac minh tai khoan nay. Hay mo noVNC de xu ly thu cong, "
+                "hoac xoa kenh va them lai kenh de tao profile sach roi chay lai job."
+            ),
+        )
+
+        self.assertEqual(failed.status, "error")
+        self.assertEqual(len(self.store.sent_live_alerts), 1)
+        chat_id, message = self.store.sent_live_alerts[0]
+        self.assertEqual(chat_id, "900")
+        self.assertIn("[UPLOAD] Job upload", message)
+        self.assertIn("Aurelian Nocturne", message)
+        self.assertIn("Verify it's you", message)
+        self.assertIn("noVNC", message)
+        self.assertIn("xoa kenh", message)
+
     def test_generic_upload_failure_does_not_send_media_specific_notification(self) -> None:
         self.store.jobs = [make_job(progress=42)]
 

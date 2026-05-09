@@ -61,6 +61,34 @@ class BrowserUploadMetadataTests(unittest.TestCase):
         self.assertIn("Verify it's you", detected)
         self.assertIn("them lai kenh", detected)
 
+    def test_detect_blocking_error_reads_overlay_dialog_after_upload_dialog(self) -> None:
+        class FakeElement:
+            def __init__(self, text: str) -> None:
+                self.text = text
+
+            def is_displayed(self) -> bool:
+                return True
+
+        class FakeDriver:
+            current_url = "https://studio.youtube.com/channel/UC-test/videos/upload?d=ud"
+
+            def find_elements(self, _by, xpath: str) -> list[FakeElement]:
+                if "ytcp-uploads-dialog" in xpath:
+                    return [FakeElement("Uploading video Video link Creating link Uploading 19%")]
+                if "role='dialog'" in xpath:
+                    return [
+                        FakeElement(
+                            "Verify it's you To continue, we need to confirm it's really you. "
+                            "This extra layer of security helps keep your account safe. Learn more Next"
+                        )
+                    ]
+                return []
+
+        detected = browser_uploader._detect_blocking_upload_error_safe(FakeDriver())
+
+        self.assertIsNotNone(detected)
+        self.assertIn("Verify it's you", detected)
+
     def test_fill_upload_metadata_sets_title_without_touching_description(self) -> None:
         calls: list[tuple[object, str]] = []
         title_box = object()

@@ -904,6 +904,16 @@ def _wait_for_uploaded_video_url(driver: webdriver.Chrome, *, timeout_seconds: i
     return last_seen
 
 
+def _require_uploaded_video_url(uploaded_video_url: str | None) -> str:
+    cleaned_url = str(uploaded_video_url or "").strip()
+    if cleaned_url:
+        return cleaned_url
+    raise RuntimeError(
+        "Khong lay duoc duong link video sau khi YouTube bao upload xong. "
+        "Worker se khong danh dau job thanh cong khi chua verify duoc video trong Studio."
+    )
+
+
 def _wait_for_legacy_draft_upload_completion(
     driver: webdriver.Chrome,
     *,
@@ -1191,6 +1201,9 @@ def upload_video_via_browser(
             raise RuntimeError(detail) from exc
         transfer_confirmed = True
         time.sleep(2.0)
+        if not uploaded_video_url:
+            uploaded_video_url = _wait_for_uploaded_video_url(driver, timeout_seconds=60)
+        uploaded_video_url = _require_uploaded_video_url(uploaded_video_url)
         return BrowserUploadResult(
             studio_url=studio_url,
             output_url=uploaded_video_url,
@@ -1199,12 +1212,12 @@ def upload_video_via_browser(
         )
     except Exception as exc:
         blocking_error = (_detect_blocking_upload_error_safe(driver) or _detect_blocking_upload_error(driver)) if driver is not None else None
-        if upload_committed and driver is not None and blocking_error is None and transfer_confirmed:
+        if upload_committed and driver is not None and blocking_error is None and transfer_confirmed and uploaded_video_url:
             if progress_callback:
                 progress_callback(1.0, "YouTube da nhan file upload va worker ket thuc theo mode draft")
             return BrowserUploadResult(
                 studio_url=studio_url,
-                output_url=uploaded_video_url,
+                output_url=_require_uploaded_video_url(uploaded_video_url),
                 cleanup_safe=True,
                 completion_message="Đã upload YouTube thành công",
             )

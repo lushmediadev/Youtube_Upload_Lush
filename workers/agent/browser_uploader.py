@@ -40,6 +40,11 @@ VI_CONTINUE_TO_YOUTUBE = "\u0111\u1ec3 ti\u1ebfp t\u1ee5c v\u1edbi youtube"
 VI_SELFIE = "selfie"
 VI_VERIFY_ITS_YOU = "x\u00e1c minh \u0111\u00f3 l\u00e0 b\u1ea1n"
 VI_REALLY_YOU = "th\u1ef1c s\u1ef1 l\u00e0 b\u1ea1n"
+IDENTITY_VERIFICATION_MESSAGE = (
+    "YouTube/Google dang hien modal Verify it's you tren Chrome profile cua kenh. "
+    "Bot khong the tu xac minh tai khoan nay. Hay mo noVNC de xu ly thu cong, "
+    "hoac xoa kenh va them lai kenh de tao profile sach roi chay lai job."
+)
 
 @dataclass
 class BrowserUploadResult:
@@ -123,6 +128,22 @@ def _fold_text(text: str) -> str:
     return re.sub(r"\s+", " ", stripped).strip().casefold()
 
 
+def _is_identity_verification_gate(page_text: str) -> bool:
+    normalized_text = (page_text or "").casefold()
+    folded_text = _fold_text(normalized_text)
+    return (
+        "verify it's you" in normalized_text
+        or "confirm it\u2019s really you" in normalized_text
+        or "confirm it's really you" in normalized_text
+        or "verify your identity" in folded_text
+        or "to continue, we need to verify your identity" in folded_text
+        or (VI_VERIFY_ITS_YOU in normalized_text and VI_REALLY_YOU in normalized_text)
+        or "xac minh danh tinh cua ban" in folded_text
+        or "xac thuc danh tinh cua ban" in folded_text
+        or "chung toi can xac thuc danh tinh cua ban" in folded_text
+    )
+
+
 def _detect_blocking_upload_error_safe(driver: webdriver.Chrome) -> str | None:
     current_url = (driver.current_url or "").casefold()
     page_text = _read_visible_page_text(driver).casefold()
@@ -139,17 +160,8 @@ def _detect_blocking_upload_error_safe(driver: webdriver.Chrome) -> str | None:
     if "video-verification" in current_url or VI_SELFIE in page_text:
         return "Google dang yeu cau xac minh bo sung tren profile nay (selfie/video verification). Bot khong the tiep tuc upload cho toi khi ban xu ly thu cong."
 
-    if (
-        "verify it's you" in page_text
-        or "confirm it\u2019s really you" in page_text
-        or "confirm it's really you" in page_text
-        or (VI_VERIFY_ITS_YOU in page_text and VI_REALLY_YOU in page_text)
-    ):
-        return (
-            "YouTube/Google dang hien modal Verify it's you tren Chrome profile cua kenh. "
-            "Bot khong the tu xac minh tai khoan nay. Hay mo noVNC de xu ly thu cong, "
-            "hoac xoa kenh va them lai kenh de tao profile sach roi chay lai job."
-        )
+    if _is_identity_verification_gate(page_text):
+        return IDENTITY_VERIFICATION_MESSAGE
 
     if (
         any(token in page_text for token in ("15 minutes", "longer than 15 minutes", VI_15_MINUTES))
@@ -246,6 +258,9 @@ def _detect_blocking_upload_error(driver: webdriver.Chrome) -> str | None:
 
     if "video-verification" in current_url or "selfie" in page_text:
         return "Google dang yeu cau xac minh bo sung tren profile nay (selfie/video verification). Bot khong the tiep tuc upload cho toi khi ban xu ly thu cong."
+
+    if _is_identity_verification_gate(page_text):
+        return IDENTITY_VERIFICATION_MESSAGE
 
     if (
         "verify it's you" in page_text

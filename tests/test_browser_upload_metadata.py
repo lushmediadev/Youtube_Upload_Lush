@@ -61,6 +61,23 @@ class BrowserUploadMetadataTests(unittest.TestCase):
         self.assertIn("Verify it's you", detected)
         self.assertIn("them lai kenh", detected)
 
+    def test_detect_blocking_error_when_youtube_requires_vietnamese_identity_verification(self) -> None:
+        class FakeDriver:
+            current_url = "https://studio.youtube.com/channel/UC-test/videos/upload?d=ud"
+
+        page_text = (
+            "Xác minh danh tính của bạn "
+            "Để tiếp tục, chúng tôi cần xác thực danh tính của bạn. "
+            "Bước bảo mật bổ sung này giúp đảm bảo an toàn cho tài khoản của bạn. "
+            "Tìm hiểu thêm Tiếp theo"
+        )
+        with patch.object(browser_uploader, "_read_visible_page_text", return_value=page_text):
+            detected = browser_uploader._detect_blocking_upload_error_safe(FakeDriver())
+
+        self.assertIsNotNone(detected)
+        self.assertIn("Verify it's you", detected)
+        self.assertIn("noVNC", detected)
+
     def test_detect_blocking_error_reads_overlay_dialog_after_upload_dialog(self) -> None:
         class FakeElement:
             def __init__(self, text: str) -> None:

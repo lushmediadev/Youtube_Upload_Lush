@@ -1145,3 +1145,4 @@
 - 2026-05-11: Added a dedicated BOT `Local` field for region/location labels. The add-BOT modal now captures `Local` instead of overloading BOT name, the BOT table shows a `Local` column after `Loại bot`, and the edit-BOT modal can update `Local` separately from the technical BOT/IP name.
 - 2026-05-11: Polished the BOT `Local` column into a badge and enabled page-level BOT deletion behind a confirmation dialog plus pass check.
 - 2026-05-11: Bumped the admin table JS cache key so browsers load the page-delete support immediately after deploy.
+- 2026-05-11: Hardened YouTube identity-verification detection for Vietnamese Studio prompts. Worker upload now treats `Xác minh danh tính của bạn` / `chúng tôi cần xác thực danh tính của bạn` as the same blocking `Verify it's you` profile error, so affected jobs can fail early with noVNC/reconnect guidance instead of drifting to false completion.

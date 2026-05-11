@@ -41,6 +41,24 @@
         line-height: 1.4;
     }
 
+    .worker-local-badge {
+        display: inline-flex;
+        max-width: 100%;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        border: 1px solid rgb(191 219 254);
+        background: rgb(239 246 255);
+        padding: 4px 10px;
+        color: rgb(2 132 199);
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        white-space: normal;
+    }
+
     .bot-user-picker {
         position: relative;
     }
@@ -273,7 +291,7 @@
         </div>
 
         <div class="table-shell">
-            <table class="admin-table admin-table-live-workers" data-admin-list-table="worker-index">
+            <table class="admin-table admin-table-live-workers" data-admin-list-table="worker-index" data-admin-delete-page-pass="1234">
                 <thead>
                     <tr>
                         <th class="w-14" data-admin-sort-label="STT">STT</th>
@@ -349,7 +367,7 @@
                             </span>
                         </td>
                         <td data-sort-value="{{ worker.local or '' }}">
-                            <p class="worker-local-text table-mono text-[12px] font-semibold text-slate-700">{{ worker.local or '-' }}</p>
+                            <span class="worker-local-badge">{{ worker.local or '-' }}</span>
                         </td>
                         <td><span class="{{ worker.status_class }}">{{ worker.status_label }}</span></td>
                         <td class="table-mono text-slate-600">
@@ -420,6 +438,10 @@
                                     type="button"
                                     class="action-btn action-btn-rose whitespace-nowrap"
                                     data-delete-bot-button="1"
+                                    data-bulk-delete-button="1"
+                                    data-bulk-delete-url="/api/admin/bots/{{ worker.id }}"
+                                    data-bulk-delete-method="DELETE"
+                                    data-bulk-delete-body='{"workspace":"{{ worker_workspace_kind }}"}'
                                     data-worker-id="{{ worker.id }}"
                                     data-workspace-kind="{{ worker_workspace_kind }}"
                                     data-worker-name="{{ worker.name }}"
@@ -1508,6 +1530,7 @@
       const workerFunctionValue = resolveWorkerFunctionValue(worker);
       const functionValue = escapeHtml(workerFunctionValue);
       const workerThreads = escapeHtml(worker.threads || 1);
+      const bulkDeleteBody = escapeHtml(JSON.stringify({ workspace: workspaceKind }));
       if (workspaceKind === 'live') {
         return [
           '<a href="/admin/bot/userofbot?botId=', workerIdParam, '&botName=', workerNameParam, '&workspace=live" class="action-btn action-btn-sky whitespace-nowrap">',
@@ -1518,7 +1541,7 @@
           '  <i data-lucide="pencil" class="h-3.5 w-3.5"></i>',
           '  S&#7917;a',
           '</button>',
-          '<button type="button" class="action-btn action-btn-rose whitespace-nowrap" data-delete-bot-button="1" data-worker-id="', workerId, '" data-workspace-kind="live" data-worker-name="', workerName, '">',
+          '<button type="button" class="action-btn action-btn-rose whitespace-nowrap" data-delete-bot-button="1" data-bulk-delete-button="1" data-bulk-delete-url="/api/admin/bots/', workerId, '" data-bulk-delete-method="DELETE" data-bulk-delete-body=\'', bulkDeleteBody, '\' data-worker-id="', workerId, '" data-workspace-kind="live" data-worker-name="', workerName, '">',
           '  <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>',
           '  X&#243;a',
           '</button>'
@@ -1533,7 +1556,7 @@
         '  <i data-lucide="pencil" class="h-3.5 w-3.5"></i>',
         '  S&#7917;a',
         '</button>',
-        '<button type="button" class="action-btn action-btn-rose whitespace-nowrap" data-delete-bot-button="1" data-worker-id="', workerId, '" data-workspace-kind="upload" data-worker-name="', workerName, '">',
+        '<button type="button" class="action-btn action-btn-rose whitespace-nowrap" data-delete-bot-button="1" data-bulk-delete-button="1" data-bulk-delete-url="/api/admin/bots/', workerId, '" data-bulk-delete-method="DELETE" data-bulk-delete-body=\'', bulkDeleteBody, '\' data-worker-id="', workerId, '" data-workspace-kind="upload" data-worker-name="', workerName, '">',
         '  <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>',
         '  X&#243;a',
         '</button>'
@@ -1593,7 +1616,7 @@
         '  <td><div class="worker-name-cell"><p class="worker-name-text text-[13px] font-semibold text-slate-900">', workerName, '</p><p class="bot-cell-meta">', botCellMeta, '</p></div></td>',
         '  <td><div class="worker-group-cell"><p class="worker-group-text text-[12px] font-medium text-slate-700">', workerGroup, '</p></div></td>',
         '  <td><span class="inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ', botTypeTone, '">', botTypeLabel, '</span></td>',
-        '  <td data-sort-value="', workerLocal, '"><p class="worker-local-text table-mono text-[12px] font-semibold text-slate-700">', workerLocalDisplay, '</p></td>',
+        '  <td data-sort-value="', workerLocal, '"><span class="worker-local-badge">', workerLocalDisplay, '</span></td>',
         '  <td><span class="', statusClass, '">', statusLabel, '</span></td>',
         '  <td class="table-mono text-slate-600"><p>', escapeHtml(createdAt.date), '</p><p class="mt-1 text-[11px] text-slate-500">', escapeHtml(createdAt.time), '</p></td>',
         '  <td><div class="space-y-1"><span class="inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ', workloadTone, '">', workloadText, '</span><p class="worker-metric-note">', workloadNote, '</p></div></td>',

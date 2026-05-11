@@ -131,6 +131,30 @@ document.addEventListener("DOMContentLoaded", function () {
       });
     }
 
+    if (control.matches("[data-bulk-delete-button]")) {
+      const method = String(control.dataset.bulkDeleteMethod || "DELETE").toUpperCase();
+      const url = control.dataset.bulkDeleteUrl || "";
+      const body = String(control.dataset.bulkDeleteBody || "").trim();
+      if (!url) {
+        return Promise.reject(new Error("Delete request is missing URL."));
+      }
+      const options = {
+        method: method,
+        credentials: "same-origin",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      };
+      if (body && method !== "GET") {
+        options.headers["Content-Type"] = "application/json";
+        options.body = body;
+      }
+      return fetch(url, options).then(function (response) {
+        if (!response.ok) {
+          throw new Error("Delete request failed.");
+        }
+        return response;
+      });
+    }
+
     const form = control;
     const method = String(form.getAttribute("method") || "GET").toUpperCase();
     const action = form.getAttribute("action") || window.location.href;
@@ -193,6 +217,85 @@ document.addEventListener("DOMContentLoaded", function () {
       "  </span>" +
       "</button>"
     );
+  }
+
+  function requestDeletePageConfirmation(count, requiredPass) {
+    const pass = String(requiredPass || "");
+    if (!pass) {
+      return Promise.resolve(window.confirm("X\u00f3a " + count + " d\u00f2ng \u0111ang hi\u1ec3n th\u1ecb tr\u00ean trang n\u00e0y?"));
+    }
+    return new Promise(function (resolve) {
+      if (typeof HTMLDialogElement === "undefined") {
+        if (!window.confirm("X\u00f3a " + count + " d\u00f2ng \u0111ang hi\u1ec3n th\u1ecb tr\u00ean trang n\u00e0y?")) {
+          resolve(false);
+          return;
+        }
+        resolve(window.prompt("Nh\u1eadp pass xo\u00e1 trang") === pass);
+        return;
+      }
+
+      const dialog = document.createElement("dialog");
+      dialog.className = "admin-dialog";
+      dialog.innerHTML =
+        '<div class="panel">' +
+        '  <form method="dialog" class="space-y-4 p-5" data-delete-page-confirm-form>' +
+        '    <div>' +
+        '      <h3 class="section-title">X\u00f3a trang hi\u1ec7n t\u1ea1i</h3>' +
+        '      <p class="section-note mt-1">Thao t\u00e1c n\u00e0y s\u1ebd x\u00f3a ' +
+        count +
+        ' d\u00f2ng \u0111ang hi\u1ec3n th\u1ecb tr\u00ean trang hi\u1ec7n t\u1ea1i.</p>' +
+        "    </div>" +
+        '    <div>' +
+        '      <label class="field-label" for="admin-delete-page-pass">Nh\u1eadp pass x\u00f3a</label>' +
+        '      <input class="toolbar-input" id="admin-delete-page-pass" type="password" autocomplete="off" inputmode="numeric" placeholder="Nh\u1eadp pass">' +
+        '      <p class="mt-2 text-[12px] font-semibold text-rose-600" data-delete-page-error hidden>Pass kh\u00f4ng \u0111\u00fang.</p>' +
+        "    </div>" +
+        '    <div class="flex justify-end gap-2 border-t border-slate-200 pt-4">' +
+        '      <button type="button" class="action-btn action-btn-slate" data-delete-page-cancel>\u0110\u00f3ng</button>' +
+        '      <button type="submit" class="action-btn action-btn-rose">X\u00e1c nh\u1eadn x\u00f3a</button>' +
+        "    </div>" +
+        "  </form>" +
+        "</div>";
+
+      document.body.appendChild(dialog);
+      const form = dialog.querySelector("[data-delete-page-confirm-form]");
+      const input = dialog.querySelector("#admin-delete-page-pass");
+      const error = dialog.querySelector("[data-delete-page-error]");
+      const cancelButton = dialog.querySelector("[data-delete-page-cancel]");
+      let settled = false;
+
+      function finish(value) {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        dialog.close();
+        dialog.remove();
+        resolve(value);
+      }
+
+      cancelButton.addEventListener("click", function () {
+        finish(false);
+      });
+      dialog.addEventListener("close", function () {
+        finish(false);
+      });
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        if (String(input.value || "").trim() !== pass) {
+          if (error) {
+            error.hidden = false;
+          }
+          input.focus();
+          input.select();
+          return;
+        }
+        finish(true);
+      });
+
+      dialog.showModal();
+      input.focus();
+    });
   }
 
   document.querySelectorAll("table[data-admin-list-table]").forEach(function (table) {
@@ -399,7 +502,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function rowDeleteControl(row) {
-      return row.querySelector("[data-bulk-delete-form], a[data-bulk-delete-link]");
+      return row.querySelector("[data-bulk-delete-form], a[data-bulk-delete-link], [data-bulk-delete-button]");
     }
 
     function refreshBodyRows() {
@@ -530,7 +633,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return;
       }
 
-      const confirmed = window.confirm("Xóa các dòng đang hiển thị trên trang này?");
+      const confirmed = await requestDeletePageConfirmation(deletableControls.length, table.dataset.adminDeletePagePass);
       if (!confirmed) {
         return;
       }

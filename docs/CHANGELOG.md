@@ -4,6 +4,7 @@
 - Fixed: Live worker no longer marks a stream `error` immediately when FFmpeg hits RTMP output `Broken pipe` / `End of file` while already streaming.
 - Changed: Streaming loop now reports `disconnected`, waits a short retry delay, then reconnects RTMP until the scheduled end time only for streams without a failover backup; primary streams with backup still yield to backup takeover.
 - Fixed: Runtime guard checks now refresh live stream leases so long prestream phases do not get reclaimed while the worker is still active.
+- Fixed: Started streams without a backup can now be reclaimed from `disconnected` after a worker restart and continue live instead of being blocked by failover-only reclaim logic.
 - Added: Unit coverage for retry classification, backup failover exclusion, and runtime lease refresh.
 - Affected files: `workers/agent/live_runner.py`, `backend/app/store.py`, `tests/test_live_rtmp_retry.py`, `tests/test_live_runtime_lease.py`
 - Impact/Risk: Medium; limits false terminal errors from transient YouTube/RTMP disconnects on non-backup streams while preserving the existing primary-to-backup failover contract.

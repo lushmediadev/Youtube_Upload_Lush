@@ -50,7 +50,12 @@ def make_live_worker(worker_id: str) -> WorkerRecord:
     )
 
 
-def make_stream(*, status: str, lease_expires_at: datetime) -> LiveStreamRecord:
+def make_stream(
+    *,
+    status: str,
+    lease_expires_at: datetime,
+    first_streaming_started_at: datetime | None = None,
+) -> LiveStreamRecord:
     now = datetime(2026, 5, 11, 21, 0)
     return LiveStreamRecord(
         id="live-test",
@@ -70,6 +75,9 @@ def make_stream(*, status: str, lease_expires_at: datetime) -> LiveStreamRecord:
         claimed_by_worker_id="live-worker-01",
         claimed_at=now,
         lease_expires_at=lease_expires_at,
+        first_streaming_started_at=first_streaming_started_at,
+        streaming_started_at=first_streaming_started_at,
+        disconnected_at=now - timedelta(seconds=300) if status == "disconnected" else None,
     )
 
 
@@ -117,6 +125,23 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         refreshed_lease = self.store.live_streams[0].lease_expires_at
         self.assertIsNotNone(refreshed_lease)
         self.assertGreater(refreshed_lease, datetime.now() + timedelta(seconds=30))
+
+    def test_started_disconnected_stream_without_backup_can_be_reclaimed(self) -> None:
+        self.store.live_streams = [
+            make_stream(
+                status="disconnected",
+                lease_expires_at=datetime(2000, 1, 1),
+                first_streaming_started_at=datetime(2026, 5, 11, 21, 0),
+            )
+        ]
+
+        self.assertTrue(
+            self.store._can_claim_live_stream(
+                self.store.live_streams[0],
+                worker_id="live-worker-01",
+                now=datetime.now(),
+            )
+        )
 
 
 if __name__ == "__main__":

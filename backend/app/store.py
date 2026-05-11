@@ -5525,12 +5525,12 @@ class AppStore:
 
     def _can_reclaim_started_live_stream(self, stream: LiveStreamRecord, *, now: datetime) -> bool:
         normalized_status = str(stream.status or "").strip().lower() or "scheduled"
-        if not self._live_stream_requires_fast_failover(stream):
-            return False
-        if self._is_live_hot_standby_backup_clone(stream):
-            return normalized_status in self._live_worker_claimable_statuses() and self._live_runtime_retry_ready(stream, now=now)
         if normalized_status != "disconnected":
             return False
+        if not self._live_stream_requires_fast_failover(stream):
+            return self._live_runtime_retry_ready(stream, now=now)
+        if self._is_live_hot_standby_backup_clone(stream):
+            return normalized_status in self._live_worker_claimable_statuses() and self._live_runtime_retry_ready(stream, now=now)
         visible_stream = self._visible_live_stream_for_runtime(stream)
         if (
             visible_stream.is_forever

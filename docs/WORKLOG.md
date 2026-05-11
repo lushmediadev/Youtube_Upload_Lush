@@ -5,6 +5,7 @@
 - [x] Added live worker retry handling so transient RTMP output disconnects move to `disconnected` and reconnect instead of becoming terminal `error` immediately for streams without failover backup.
 - [x] Preserved primary-to-backup failover: primary streams with `backup_worker_id` still stop and let backup take over instead of retrying locally.
 - [x] Fixed live runtime lease refresh during guard checks so long prestream phases do not get reclaimed while the worker is still active.
+- [x] Fixed reclaim logic so a started stream without backup can be claimed again from `disconnected` after worker restart.
 - [x] Verified with `python -m compileall backend/app workers/agent`, `python -m unittest discover -s tests -p test_live_rtmp_retry.py`, and `python -m unittest discover -s tests -p test_live_runtime_lease.py`.
 
 ### 2026-05-04

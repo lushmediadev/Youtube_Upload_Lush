@@ -114,7 +114,15 @@ def _acquire_live_normalize_slot(
 
 
 def _app_timezone() -> ZoneInfo:
-    return ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Saigon"))
+    configured = os.getenv("APP_TIMEZONE", "Asia/Ho_Chi_Minh").strip()
+    if configured.casefold() == "asia/saigon":
+        configured = "Asia/Ho_Chi_Minh"
+    for candidate in (configured, "Asia/Ho_Chi_Minh", "Etc/GMT-7"):
+        try:
+            return ZoneInfo(candidate)
+        except Exception:
+            continue
+    raise RuntimeError("No valid timezone found for live worker")
 
 
 def _now_local() -> datetime:

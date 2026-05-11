@@ -230,7 +230,10 @@ class AppStore:
 
     @staticmethod
     def _app_timezone_name() -> str:
-        return os.getenv("APP_TIMEZONE", "Asia/Saigon")
+        configured = os.getenv("APP_TIMEZONE", "Asia/Ho_Chi_Minh").strip()
+        if configured.casefold() == "asia/saigon":
+            return "Asia/Ho_Chi_Minh"
+        return configured
 
     @classmethod
     def _app_timezone(cls) -> tzinfo:

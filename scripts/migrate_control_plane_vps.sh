@@ -13,7 +13,7 @@ SOURCE_RUNTIME_DIR="${SOURCE_RUNTIME_DIR:-/opt/youtube-upload-lush-runtime}"
 
 APP_DIR="${APP_DIR:-/opt/youtube-upload-lush}"
 RUNTIME_DIR="${RUNTIME_DIR:-/opt/youtube-upload-lush-runtime}"
-REPO_URL="${REPO_URL:-https://github.com/shinemusicllc/Youtube_Upload_Lush.git}"
+REPO_URL="${REPO_URL:-https://github.com/lushmediadev/Youtube_Upload_Lush.git}"
 BRANCH="${BRANCH:-main}"
 SYSTEMD_SERVICE_NAME="${SYSTEMD_SERVICE_NAME:-youtube-upload-web.service}"
 SERVICE_PORT="${SERVICE_PORT:-8000}"
@@ -38,7 +38,7 @@ Optional env:
   SOURCE_RUNTIME_DIR=/opt/youtube-upload-lush-runtime
   APP_DIR=/opt/youtube-upload-lush
   RUNTIME_DIR=/opt/youtube-upload-lush-runtime
-  REPO_URL=https://github.com/shinemusicllc/Youtube_Upload_Lush.git
+  REPO_URL=https://github.com/lushmediadev/Youtube_Upload_Lush.git
   BRANCH=main
   SYSTEMD_SERVICE_NAME=youtube-upload-web.service
   SERVICE_PORT=8000

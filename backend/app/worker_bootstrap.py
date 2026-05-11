@@ -25,7 +25,7 @@ BOOTSTRAP_SCRIPT_PATH = SCRIPT_DIR / "bootstrap_worker.sh"
 GIT_LAYOUT_SCRIPT_PATH = SCRIPT_DIR / "git_runtime_layout.sh"
 DECOMMISSION_SCRIPT_PATH = SCRIPT_DIR / "decommission_worker.sh"
 load_dotenv(ROOT_DIR / ".env")
-DEFAULT_REPO_URL = "https://github.com/shinemusicllc/Youtube_Upload_Lush.git"
+DEFAULT_REPO_URL = "https://github.com/lushmediadev/Youtube_Upload_Lush.git"
 DEFAULT_BRANCH = "main"
 DEFAULT_APP_DIR = "/opt/youtube-upload-lush"
 DEFAULT_RUNTIME_DIR = "/opt/youtube-upload-lush-runtime"

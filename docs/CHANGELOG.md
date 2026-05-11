@@ -1146,4 +1146,5 @@
 - 2026-05-11: Polished the BOT `Local` column into a badge and enabled page-level BOT deletion behind a confirmation dialog plus pass check.
 - 2026-05-11: Bumped the admin table JS cache key so browsers load the page-delete support immediately after deploy.
 - 2026-05-11: Hardened YouTube identity-verification detection for Vietnamese Studio prompts. Worker upload now treats `Xác minh danh tính của bạn` / `chúng tôi cần xác thực danh tính của bạn` as the same blocking `Verify it's you` profile error, so affected jobs can fail early with noVNC/reconnect guidance instead of drifting to false completion.
+- 2026-05-11: Updated worker/control-plane bootstrap defaults and deployment docs to use `https://github.com/lushmediadev/Youtube_Upload_Lush.git` instead of the old `shinemusicllc` repository.
 - 2026-05-11: Standardized app/live worker timezone defaults on `Asia/Ho_Chi_Minh`. New live/backup BOT bootstrap env files now include `APP_TIMEZONE=Asia/Ho_Chi_Minh`, while the runtime maps legacy `Asia/Saigon` env values to the canonical timezone so scheduled live jobs do not fail on workers whose zoneinfo database lacks the old alias.

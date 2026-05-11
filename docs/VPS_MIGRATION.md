@@ -26,7 +26,7 @@ Nếu domain đổi sang VPS mới, chuẩn bị DNS/Caddy sau khi app chạy �
 ## Chạy migrate control-plane
 
 ```bash
-git clone https://github.com/shinemusicllc/Youtube_Upload_Lush.git /opt/youtube-upload-lush
+git clone https://github.com/lushmediadev/Youtube_Upload_Lush.git /opt/youtube-upload-lush
 cd /opt/youtube-upload-lush
 SOURCE_HOST=OLD_VPS_IP bash scripts/migrate_control_plane_vps.sh
 ```

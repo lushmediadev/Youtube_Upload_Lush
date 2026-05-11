@@ -29,7 +29,7 @@ Trong repo checkout, cac duong dan runtime duoc mount lai bang symlink:
 ```bash
 APP_DIR=/opt/youtube-upload-lush \
 RUNTIME_DIR=/opt/youtube-upload-lush-runtime \
-REPO_URL=https://github.com/shinemusicllc/Youtube_Upload_Lush.git \
+REPO_URL=https://github.com/lushmediadev/Youtube_Upload_Lush.git \
 BRANCH=main \
 SYSTEMD_SERVICE_NAME=youtube-upload-web.service \
 SERVICE_PORT=8000 \
@@ -42,7 +42,7 @@ Preview control-plane `/opt/youtube-upload-lush-live*` da duoc retire tren host 
 ```bash
 APP_DIR=/opt/youtube-upload-lush \
 RUNTIME_DIR=/opt/youtube-upload-lush-runtime \
-REPO_URL=https://github.com/shinemusicllc/Youtube_Upload_Lush.git \
+REPO_URL=https://github.com/lushmediadev/Youtube_Upload_Lush.git \
 BRANCH=main \
 bash /opt/youtube-upload-lush/scripts/bootstrap_worker.sh
 ```

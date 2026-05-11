@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/youtube-upload-lush}"
 RUNTIME_DIR="${RUNTIME_DIR:-/opt/youtube-upload-lush-runtime}"
-REPO_URL="${REPO_URL:-https://github.com/shinemusicllc/Youtube_Upload_Lush.git}"
+REPO_URL="${REPO_URL:-https://github.com/lushmediadev/Youtube_Upload_Lush.git}"
 BRANCH="${BRANCH:-main}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

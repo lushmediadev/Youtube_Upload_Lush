@@ -1,5 +1,10 @@
 ﻿# Worklog
 
+### 2026-05-11
+- [x] Investigated live streams that failed after entering `streaming`; all failures were FFmpeg RTMP output disconnects (`Broken pipe` / `End of file`) after YouTube ingest accepted data briefly.
+- [x] Added live worker retry handling so transient RTMP output disconnects move to `disconnected` and reconnect instead of becoming terminal `error` immediately.
+- [x] Verified with `python -m compileall workers/agent`, `python -m unittest discover -s tests -p test_live_rtmp_retry.py`, and `python -m unittest discover -s tests -p test_live_timezone.py`.
+
 ### 2026-05-04
 - [x] Added `scripts/migrate_control_plane_vps.sh` for future VPS moves using fresh Git checkout plus runtime data copy.
 - [x] Added `docs/VPS_MIGRATION.md` and linked it from `docs/DEPLOYMENT.md`.

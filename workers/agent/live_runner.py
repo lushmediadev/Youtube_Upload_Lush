@@ -32,6 +32,7 @@ def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
     return max(minimum, parsed)
 LIVE_RUNTIME_GUARD_INTERVAL_SECONDS = _env_float("WORKER_LIVE_RUNTIME_GUARD_INTERVAL_SECONDS", 1.0, minimum=0.2)
 LIVE_FFMPEG_PROGRESS_INTERVAL_SECONDS = _env_float("WORKER_LIVE_FFMPEG_PROGRESS_INTERVAL_SECONDS", 0.5, minimum=0.2)
+LIVE_RTMP_RETRY_DELAY_SECONDS = _env_float("WORKER_LIVE_RTMP_RETRY_DELAY_SECONDS", 20.0, minimum=5.0)
 LIVE_COPY_SUPPORTED_VIDEO_CODECS = {"h264"}
 LIVE_COPY_SUPPORTED_AUDIO_CODECS = {"aac", "mp3"}
 LIVE_NORMALIZE_TARGET_GOP_SECONDS = 2.0
@@ -154,6 +155,35 @@ def _is_hot_standby_backup_stream(stream: dict) -> bool:
     is_forever = bool(stream.get("is_forever"))
     end_time_live = _parse_control_plane_datetime(stream.get("end_time_live"))
     return runtime_role == "backup" and is_runtime_clone and is_forever and end_time_live is None
+
+
+def _is_retriable_rtmp_output_error(exc: BaseException) -> bool:
+    message = str(exc or "").casefold()
+    if "ffmpeg live runtime failed" not in message:
+        return False
+    retriable_tokens = (
+        "broken pipe",
+        "end of file",
+        "error muxing a packet",
+        "error writing trailer",
+        "error closing file",
+    )
+    return any(token in message for token in retriable_tokens)
+
+
+def _sleep_before_rtmp_retry(
+    *,
+    delay_seconds: float,
+    end_time_live: datetime | None,
+    lifecycle_guard=None,
+) -> None:
+    deadline = time.monotonic() + max(0.0, delay_seconds)
+    while time.monotonic() < deadline:
+        if end_time_live and _now_local() >= end_time_live:
+            return
+        if lifecycle_guard:
+            lifecycle_guard(force=True)
+        time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
 
 
 def _touch_activity(path: Path | None) -> None:
@@ -910,22 +940,61 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
             return
 
         report_progress("streaming", 0, "Bắt đầu đẩy RTMP", force=True)
+        rtmp_retry_count = 0
         while True:
             if end_time_live and _now_local() >= end_time_live:
                 break
-            stream_result = _stream_once(
-                client,
-                config,
-                stream_id=stream_id,
-                rendered_path=rendered_path,
-                rendered_duration=rendered_duration,
-                rtmp_target=target,
-                report_progress=report_progress,
-                end_time_live=end_time_live,
-                lifecycle_guard=lifecycle_guard,
-            )
+            try:
+                stream_result = _stream_once(
+                    client,
+                    config,
+                    stream_id=stream_id,
+                    rendered_path=rendered_path,
+                    rendered_duration=rendered_duration,
+                    rtmp_target=target,
+                    report_progress=report_progress,
+                    end_time_live=end_time_live,
+                    lifecycle_guard=lifecycle_guard,
+                )
+            except RuntimeError as exc:
+                if not _is_retriable_rtmp_output_error(exc):
+                    raise
+                if end_time_live and _now_local() >= end_time_live:
+                    break
+                rtmp_retry_count += 1
+                retry_delay = LIVE_RTMP_RETRY_DELAY_SECONDS
+                print(
+                    (
+                        "[live] RTMP output disconnected; retrying "
+                        f"stream_id={stream_id} "
+                        f"attempt={rtmp_retry_count} "
+                        f"delay_seconds={retry_delay:.1f}: {exc}"
+                    ),
+                    flush=True,
+                )
+                report_progress(
+                    "disconnected",
+                    0,
+                    f"Mất kết nối RTMP, thử nối lại lần {rtmp_retry_count} sau {int(retry_delay)} giây",
+                    force=True,
+                )
+                _sleep_before_rtmp_retry(
+                    delay_seconds=retry_delay,
+                    end_time_live=end_time_live,
+                    lifecycle_guard=lifecycle_guard,
+                )
+                if end_time_live and _now_local() >= end_time_live:
+                    break
+                report_progress(
+                    "streaming",
+                    0,
+                    f"Đang nối lại RTMP lần {rtmp_retry_count}",
+                    force=True,
+                )
+                continue
             if stream_result == "ended":
                 break
+            rtmp_retry_count = 0
             if end_time_live and _now_local() >= end_time_live:
                 break
         complete_live_stream(client, config, stream_id, message="Luồng live đã kết thúc theo lịch.")

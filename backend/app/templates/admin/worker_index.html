@@ -32,7 +32,8 @@
         min-width: 0;
     }
 
-    .worker-group-text {
+    .worker-group-text,
+    .worker-local-text {
         display: block;
         overflow-wrap: anywhere;
         word-break: break-word;
@@ -279,6 +280,7 @@
                         <th class="w-[156px]" data-admin-sort-label="BOT">BOT</th>
                         <th class="w-[96px]" data-admin-sort-label="Group">Group</th>
                         <th class="w-[88px]" data-admin-sort-label="Lo&#7841;i bot">Lo&#7841;i bot</th>
+                        <th class="w-[78px]" data-admin-sort-label="Local">Local</th>
                         <th class="w-[104px]" data-admin-sort-label="Tr&#7841;ng th&#225;i">Tr&#7841;ng th&#225;i</th>
                         <th class="w-[114px]" data-admin-sort-label="Ng&#224;y t&#7841;o">Ng&#224;y t&#7841;o</th>
                         <th class="w-[78px]" data-admin-sort-label="Lu&#7891;ng live/upload">Lu&#7891;ng live/upload</th>
@@ -309,11 +311,11 @@
                         data-worker-row-id="{{ worker.id }}"
                         data-workspace-kind="{{ worker_workspace_kind }}"
                         class="{% if worker.row_dimmed and not compact_operation_row %}bg-slate-50/70 opacity-80{% endif %}"
-                        data-search-text="{{ worker.bot_id }} {{ worker.name }} {{ worker.group }} {{ worker.bot_type_label }} {{ worker.manager_name }} {{ worker.assigned_user_name }} {{ worker.assigned_user_names_text }} {{ worker.created_at }} {{ worker.ram_text }} {{ worker.disk_text }} {{ worker.bandwidth_text }} {{ worker.space_text }} {{ worker.workload_text }} {{ worker.cpu_percent }}"
+                        data-search-text="{{ worker.bot_id }} {{ worker.name }} {{ worker.group }} {{ worker.bot_type_label }} {{ worker.local }} {{ worker.manager_name }} {{ worker.assigned_user_name }} {{ worker.assigned_user_names_text }} {{ worker.created_at }} {{ worker.ram_text }} {{ worker.disk_text }} {{ worker.bandwidth_text }} {{ worker.space_text }} {{ worker.workload_text }} {{ worker.cpu_percent }}"
                     >
                         <td class="table-mono text-slate-500">{{ worker.index }}</td>
                         {% if compact_operation_row %}
-                        <td colspan="12" class="py-3">
+                        <td colspan="13" class="py-3">
                             <div class="rounded-[18px] border px-4 py-3 {{ operation_shell_class }}">
                                 <div class="flex items-start gap-3">
                                     <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl {{ operation_icon_class }}">
@@ -345,6 +347,9 @@
                             <span class="inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold {{ worker.bot_type_badge_class }}">
                                 {{ worker.bot_type_label }}
                             </span>
+                        </td>
+                        <td data-sort-value="{{ worker.local or '' }}">
+                            <p class="worker-local-text table-mono text-[12px] font-semibold text-slate-700">{{ worker.local or '-' }}</p>
                         </td>
                         <td><span class="{{ worker.status_class }}">{{ worker.status_label }}</span></td>
                         <td class="table-mono text-slate-600">
@@ -401,6 +406,7 @@
                                     data-worker-name="{{ worker.raw_name }}"
                                     data-worker-password="{{ worker.connection_password or '' }}"
                                     data-worker-group="{{ worker.group or '' }}"
+                                    data-worker-local="{{ worker.local or '' }}"
                                     data-manager-id="{{ worker.manager_id }}"
                                     data-live-role="{{ worker.bot_function_key or worker.assigned_live_role or ('upload' if not worker_is_live else 'primary') }}"
                                     data-worker-threads="{{ worker.threads or 1 }}"
@@ -446,7 +452,7 @@
 
             <div class="border-b border-slate-200 px-5 py-4">
                 <h3 class="section-title" data-create-bot-title>Th&#234;m BOT</h3>
-                    <p class="section-note" data-create-bot-description>Nh&#7853;p IP VPS, root credential v&#224; c&#7845;u h&#236;nh s&#417; b&#7897; ngay trong modal n&#224;y. Manager, user, t&#234;n BOT v&#224; group c&#243; th&#7875; &#273;&#7875; tr&#7889;ng n&#7871;u mu&#7889;n g&#225;n sau.</p>
+                    <p class="section-note" data-create-bot-description>Nh&#7853;p IP VPS, root credential v&#224; c&#7845;u h&#236;nh s&#417; b&#7897; ngay trong modal n&#224;y. Manager, user, Local v&#224; group c&#243; th&#7875; &#273;&#7875; tr&#7889;ng n&#7871;u mu&#7889;n g&#225;n sau.</p>
             </div>
             <div class="space-y-3 px-5 pt-3 pb-4">
                 <input type="hidden" name="manage_user_assignments" value="1">
@@ -513,8 +519,8 @@
                     <p class="mt-1 text-[11px] text-slate-500" data-create-bot-thread-help>S&#7889; lu&#7891;ng &#225;p cho m&#7895;i user tr&#234;n BOT live/backup. T&#7889;i &#273;a 5 lu&#7891;ng tr&#234;n 1 VPS.</p>
                 </div>
                 <div>
-                    <label class="field-label" for="create-bot-name">T&#234;n BOT</label>
-                    <input class="toolbar-input" id="create-bot-name" name="name" placeholder="&#272;&#7875; tr&#7889;ng &#273;&#7875; d&#249;ng IP VPS l&#224;m t&#234;n BOT">
+                    <label class="field-label" for="create-bot-local">Local</label>
+                    <input class="toolbar-input" id="create-bot-local" name="local" placeholder="V&#237; d&#7909;: EU, UK, US-West">
                 </div>
                 <div>
                     <label class="field-label" for="create-bot-group">Group</label>
@@ -687,6 +693,10 @@
                         <option value="backup">Backup</option>
                     </select>
                 </div>
+                <div>
+                    <label class="field-label" for="edit-bot-local">Local</label>
+                    <input class="toolbar-input" id="edit-bot-local" name="Local" placeholder="V&#237; d&#7909;: EU, UK, US-West">
+                </div>
                 <div data-edit-bot-thread-field hidden>
                     <label class="field-label" for="edit-bot-threads">S&#7889; lu&#7891;ng / User</label>
                     <input
@@ -780,6 +790,7 @@
     const editBotThreadField = document.querySelector('[data-edit-bot-thread-field]');
     const editBotThreadInput = document.getElementById('edit-bot-threads');
     const editBotThreadHelp = document.querySelector('[data-edit-bot-thread-help]');
+    const editBotLocalInput = document.getElementById('edit-bot-local');
     const editBotUserPicker = document.querySelector('[data-bot-user-picker]');
     const editBotUserPickerToggle = editBotUserPicker ? editBotUserPicker.querySelector('[data-bot-user-picker-toggle]') : null;
     const editBotUserPickerSummary = editBotUserPicker ? editBotUserPicker.querySelector('[data-bot-user-picker-summary]') : null;
@@ -796,7 +807,7 @@
     const createBotLiveRoleHiddenInput = document.getElementById('create-bot-live-role-hidden');
     const createBotIpInput = document.getElementById('create-bot-vps-ip');
     const createBotPasswordInput = document.getElementById('create-bot-password');
-    const createBotNameInput = document.getElementById('create-bot-name');
+    const createBotLocalInput = document.getElementById('create-bot-local');
     const createBotGroupInput = document.getElementById('create-bot-group');
     const createBotManagerSelect = document.getElementById('create-bot-manager-id');
     const createBotThreadField = document.querySelector('[data-create-bot-thread-field]');
@@ -827,7 +838,7 @@
       },
       primary: {
         title: 'Th\u00eam BOT live',
-        description: 'C\u00e0i worker live ch\u00ednh \u0111\u1ec3 ph\u00e1t RTMP trong workspace live. C\u00f3 th\u1ec3 g\u00e1n manager, user, t\u00ean BOT v\u00e0 group ngay t\u1eeb l\u00fac c\u00e0i.',
+        description: 'C\u00e0i worker live ch\u00ednh \u0111\u1ec3 ph\u00e1t RTMP trong workspace live. C\u00f3 th\u1ec3 g\u00e1n manager, user, Local v\u00e0 group ngay t\u1eeb l\u00fac c\u00e0i.',
         submitLabel: 'C\u00e0i BOT live',
         loadingLabel: '\u0110ang c\u00e0i BOT live...',
         successLabel: '\u0110\u00e3 b\u1eaft \u0111\u1ea7u c\u00e0i BOT live.',
@@ -927,6 +938,9 @@
       }
       if (editBotThreadInput) {
         editBotThreadInput.value = '1';
+      }
+      if (editBotLocalInput) {
+        editBotLocalInput.value = '';
       }
       syncEditBotRoleOptions('upload');
       syncEditBotWorkspaceState();
@@ -1354,6 +1368,7 @@
         worker.raw_name,
         worker.group,
         worker.bot_type_label,
+        worker.local,
         worker.workspace_kind,
         worker.manager_name,
         worker.assigned_user_name,
@@ -1462,7 +1477,7 @@
       return [
         '<tr data-worker-row-id="', workerId, '" data-search-text="', searchText, '">',
         '  <td class="table-mono text-slate-500">', escapeHtml(worker.index), '</td>',
-        '  <td colspan="12" class="py-3">',
+        '  <td colspan="13" class="py-3">',
         '    <div class="rounded-[18px] border px-4 py-3 ', visual.shell, '">',
         '      <div class="flex items-start gap-3">',
         '        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ', visual.icon, '">',
@@ -1482,7 +1497,7 @@
       ].join('');
     }
 
-    function buildWorkerActionMarkup(worker, workerId, workerName, rawWorkerName, workerPassword, workerGroup, managerId, assignedUserId) {
+    function buildWorkerActionMarkup(worker, workerId, workerName, rawWorkerName, workerPassword, workerGroup, workerLocal, managerId, assignedUserId) {
       if (worker.actions_disabled) {
         return buildDisabledActionMarkup(worker);
       }
@@ -1499,7 +1514,7 @@
           '  <i data-lucide="users" class="h-3.5 w-3.5"></i>',
           '  DS User',
           '</a>',
-          '<button type="button" class="action-btn action-btn-emerald whitespace-nowrap" data-dialog-open="edit-bot-dialog" data-worker-id="', workerId, '" data-workspace-kind="live" data-worker-name="', rawWorkerName, '" data-worker-password="', workerPassword, '" data-worker-group="', workerGroup, '" data-manager-id="', managerId, '" data-live-role="', functionValue, '" data-worker-threads="', workerThreads, '" data-user-id="', assignedUserId, '" data-user-ids="', assignedUserIds, '">',
+          '<button type="button" class="action-btn action-btn-emerald whitespace-nowrap" data-dialog-open="edit-bot-dialog" data-worker-id="', workerId, '" data-workspace-kind="live" data-worker-name="', rawWorkerName, '" data-worker-password="', workerPassword, '" data-worker-group="', workerGroup, '" data-worker-local="', workerLocal, '" data-manager-id="', managerId, '" data-live-role="', functionValue, '" data-worker-threads="', workerThreads, '" data-user-id="', assignedUserId, '" data-user-ids="', assignedUserIds, '">',
           '  <i data-lucide="pencil" class="h-3.5 w-3.5"></i>',
           '  S&#7917;a',
           '</button>',
@@ -1514,7 +1529,7 @@
         '  <i data-lucide="link-2" class="h-3.5 w-3.5"></i>',
         '  DS k&#234;nh',
         '</a>',
-        '<button type="button" class="action-btn action-btn-emerald whitespace-nowrap" data-dialog-open="edit-bot-dialog" data-worker-id="', workerId, '" data-workspace-kind="upload" data-worker-name="', rawWorkerName, '" data-worker-password="', workerPassword, '" data-worker-group="', workerGroup, '" data-manager-id="', managerId, '" data-live-role="upload" data-worker-threads="', workerThreads, '" data-user-id="', assignedUserId, '" data-user-ids="', assignedUserIds, '">',
+        '<button type="button" class="action-btn action-btn-emerald whitespace-nowrap" data-dialog-open="edit-bot-dialog" data-worker-id="', workerId, '" data-workspace-kind="upload" data-worker-name="', rawWorkerName, '" data-worker-password="', workerPassword, '" data-worker-group="', workerGroup, '" data-worker-local="', workerLocal, '" data-manager-id="', managerId, '" data-live-role="upload" data-worker-threads="', workerThreads, '" data-user-id="', assignedUserId, '" data-user-ids="', assignedUserIds, '">',
         '  <i data-lucide="pencil" class="h-3.5 w-3.5"></i>',
         '  S&#7917;a',
         '</button>',
@@ -1533,6 +1548,8 @@
       const rawWorkerName = escapeHtml(worker.raw_name || worker.name);
       const workerPassword = escapeHtml(worker.connection_password || '');
       const workerGroup = escapeHtml(worker.group || worker.manager_name || '');
+      const workerLocal = escapeHtml(worker.local || '');
+      const workerLocalDisplay = escapeHtml(worker.local || '-');
       const managerId = escapeHtml(worker.manager_id || '');
       const assignedUserId = escapeHtml(worker.assigned_user_id || '');
       const workerFunctionValue = resolveWorkerFunctionValue(worker);
@@ -1565,6 +1582,7 @@
         rawWorkerName,
         workerPassword,
         workerGroup,
+        workerLocal,
         managerId,
         assignedUserId
       );
@@ -1575,6 +1593,7 @@
         '  <td><div class="worker-name-cell"><p class="worker-name-text text-[13px] font-semibold text-slate-900">', workerName, '</p><p class="bot-cell-meta">', botCellMeta, '</p></div></td>',
         '  <td><div class="worker-group-cell"><p class="worker-group-text text-[12px] font-medium text-slate-700">', workerGroup, '</p></div></td>',
         '  <td><span class="inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ', botTypeTone, '">', botTypeLabel, '</span></td>',
+        '  <td data-sort-value="', workerLocal, '"><p class="worker-local-text table-mono text-[12px] font-semibold text-slate-700">', workerLocalDisplay, '</p></td>',
         '  <td><span class="', statusClass, '">', statusLabel, '</span></td>',
         '  <td class="table-mono text-slate-600"><p>', escapeHtml(createdAt.date), '</p><p class="mt-1 text-[11px] text-slate-500">', escapeHtml(createdAt.time), '</p></td>',
         '  <td><div class="space-y-1"><span class="inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ', workloadTone, '">', workloadText, '</span><p class="worker-metric-note">', workloadNote, '</p></div></td>',
@@ -1883,6 +1902,9 @@
           editBotPasswordInput.value = button.dataset.workerPassword || '';
         }
         document.getElementById('edit-bot-group').value = button.dataset.workerGroup || '';
+        if (editBotLocalInput) {
+          editBotLocalInput.value = button.dataset.workerLocal || '';
+        }
         initialEditBotWorkspaceKind = normalizeWorkspaceKind(button.dataset.workspaceKind);
         initialEditBotFunctionValue = String(button.dataset.liveRole || (initialEditBotWorkspaceKind === 'live' ? 'primary' : 'upload')).trim().toLowerCase() || 'upload';
         syncEditBotRoleOptions(
@@ -2241,7 +2263,7 @@
         auth_mode: 'password',
         password: String(formData.get('password') || ''),
         workspace: workspaceKind,
-        name: String(formData.get('name') || '').trim(),
+        local: String(formData.get('local') || '').trim(),
         group: String(formData.get('group') || '').trim(),
         manager_id: selectedManagerId,
         live_role: workspaceKind === 'live' ? selectedLiveRole : 'upload',

@@ -50,6 +50,7 @@ class AdminUserBotUpdatePayload(BaseModel):
 
 class AdminBotUpdatePayload(BaseModel):
     name: str
+    local: str | None = None
     group: str | None = None
     password: str | None = None
     manager_id: str | None = None
@@ -76,6 +77,7 @@ class AdminBotInstallPayload(BaseModel):
     bot_kind: str | None = None
     workspace: str | None = None
     name: str | None = None
+    local: str | None = None
     group: str | None = None
     manager_id: str | None = None
     live_role: str | None = None
@@ -221,6 +223,7 @@ def _start_bot_workspace_conversion(
     current_workspace_mode: str,
     target_workspace_mode: str,
     name: str,
+    local: str | None,
     group: str | None,
     manager_id: str | None,
     live_role: str | None,
@@ -318,6 +321,7 @@ def _start_bot_workspace_conversion(
         requested_user_id=current_user.id,
         post_install_config={
             "name": name,
+            "local": local,
             "group": group,
             "manager_id": manager_id,
             "live_role": desired_live_role if resolved_target_workspace_mode == "live" else "upload",
@@ -619,6 +623,7 @@ async def install_admin_bot(request: Request, payload: AdminBotInstallPayload):
     )
     auth_mode = str(payload.auth_mode or "password").strip().lower() or "password"
     requested_name = str(payload.name or "").strip() or None
+    requested_local = str(payload.local or "").strip() or None
     requested_group = str(payload.group or "").strip() or None
     requested_live_role = str(payload.live_role or "").strip().lower() or None
     requested_threads = store._normalize_live_worker_threads(payload.threads) if workspace_mode == "live" else 1
@@ -665,6 +670,7 @@ async def install_admin_bot(request: Request, payload: AdminBotInstallPayload):
             raise HTTPException(status_code=400, detail="User được chọn không hợp lệ.")
     post_install_config = {
         "name": requested_name,
+        "local": requested_local,
         "group": requested_group,
         "manager_id": manager_id,
         "live_role": requested_live_role if workspace_mode == "live" else "upload",
@@ -765,6 +771,7 @@ async def update_admin_bot(request: Request, bot_id: str, payload: AdminBotUpdat
                 current_workspace_mode=current_workspace_mode,
                 target_workspace_mode=workspace_mode,
                 name=payload.name,
+                local=payload.local,
                 group=payload.group,
                 manager_id=manager_id,
                 live_role=payload.live_role,
@@ -776,6 +783,7 @@ async def update_admin_bot(request: Request, bot_id: str, payload: AdminBotUpdat
         store.update_bot(
             bot_id,
             payload.name,
+            payload.local,
             payload.group,
             manager_id,
             workspace_mode=workspace_mode,

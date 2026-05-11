@@ -382,6 +382,7 @@ def _start_bot_workspace_conversion(
     current_workspace_mode: str,
     target_workspace_mode: str,
     name: str,
+    local: str | None,
     group: str | None,
     manager_id: str | None,
     live_role: str | None,
@@ -479,6 +480,7 @@ def _start_bot_workspace_conversion(
         requested_user_id=current_admin.id,
         post_install_config={
             "name": name,
+            "local": local,
             "group": group,
             "manager_id": manager_id,
             "live_role": desired_live_role if resolved_target_workspace_mode == "live" else "upload",
@@ -1482,6 +1484,7 @@ async def admin_bot_update(request: Request):
     worker_id = str(form.get("Id") or form.get("worker_id") or "").strip()
     _enforce_worker_scope(current_admin, worker_id, workspace_mode=current_workspace_mode)
     name = str(form.get("Name") or form.get("name") or "").strip()
+    local = str(form.get("Local") or form.get("local") or "").strip()
     group = str(form.get("Group") or form.get("group") or "").strip() or None
     password = str(form.get("Password") or form.get("password") or "").strip() or None
     raw_manager_id = str(form.get("UserIdManager") or form.get("manager_id") or "").strip()
@@ -1543,6 +1546,7 @@ async def admin_bot_update(request: Request):
                 current_workspace_mode=current_workspace_mode,
                 target_workspace_mode=workspace_mode,
                 name=name,
+                local=local,
                 group=group,
                 manager_id=manager_id,
                 live_role=live_role,
@@ -1564,6 +1568,7 @@ async def admin_bot_update(request: Request):
         store.update_bot(
             worker_id,
             name,
+            local,
             group,
             manager_id,
             workspace_mode=workspace_mode,
@@ -1614,6 +1619,7 @@ async def admin_bot_create(request: Request):
     if manager_id == "__bot_empty__":
         manager_id = None
     requested_name = str(form.get("name") or "").strip() or None
+    requested_local = str(form.get("local") or "").strip() or None
     requested_group = str(form.get("group") or "").strip() or None
     requested_live_role = str(form.get("live_role") or "").strip().lower() or None
     requested_threads = (
@@ -1694,6 +1700,7 @@ async def admin_bot_create(request: Request):
             requested_user_id=current_admin.id,
             post_install_config={
                 "name": requested_name,
+                "local": requested_local,
                 "group": requested_group,
                 "manager_id": manager_id,
                 "live_role": requested_live_role if workspace_mode == "live" else "upload",

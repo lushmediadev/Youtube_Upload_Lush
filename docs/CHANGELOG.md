@@ -1142,3 +1142,4 @@
 - 2026-05-09: Hardened YouTube upload DOM polling after `Kodi Lofi` failed at 19% with Selenium `script timeout`. Worker dialog/progress/status readers now treat Selenium `TimeoutException` while reading Studio DOM as a skipped polling sample instead of failing the upload job.
 - 2026-05-09: Shortened the user-facing Telegram copy for YouTube `Verify it's you` upload failures to: `YouTube/Google yêu cầu Verify it's you. Vui lòng xoá kênh và thêm lại kênh.`
 - 2026-05-11: Added a red onboarding warning under the add-channel login modal note telling users to let a newly logged-in channel sit on the VPS for 7 days before posting to reduce Google `Verify it's you` challenges.
+- 2026-05-11: Added a dedicated BOT `Local` field for region/location labels. The add-BOT modal now captures `Local` instead of overloading BOT name, the BOT table shows a `Local` column after `Loại bot`, and the edit-BOT modal can update `Local` separately from the technical BOT/IP name.

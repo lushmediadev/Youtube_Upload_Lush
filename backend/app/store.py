@@ -1811,6 +1811,7 @@ class AppStore:
                     )
                 normalized_post_install_config = {
                     "name": str(post_install_config.get("name") or "").strip() or None,
+                    "local": str(post_install_config.get("local") or "").strip() or None,
                     "group": str(post_install_config.get("group") or "").strip() or None,
                     "manager_id": str(post_install_config.get("manager_id") or "").strip() or None,
                     "live_role": str(post_install_config.get("live_role") or "").strip() or None,
@@ -1823,7 +1824,7 @@ class AppStore:
                 }
                 if any(
                     normalized_post_install_config.get(key)
-                    for key in ("name", "group", "manager_id", "live_role")
+                    for key in ("name", "local", "group", "manager_id", "live_role")
                 ) or normalized_post_install_config["assigned_user_ids"]:
                     task["post_install_config"] = normalized_post_install_config
                     if resolved_workspace_mode == "live":
@@ -4905,6 +4906,7 @@ class AppStore:
         else:
             worker_name = self._resolve_worker_display_name(worker_id)
         desired_name = str(config.get("name") or "").strip() or worker_name
+        desired_local = str(config.get("local") or "").strip()
         desired_group = str(config.get("group") or "").strip() or None
         desired_manager_id = str(config.get("manager_id") or "").strip() or None
         desired_live_role = str(config.get("live_role") or "").strip() or None
@@ -4919,6 +4921,7 @@ class AppStore:
         self.update_bot(
             worker_id,
             desired_name,
+            desired_local,
             desired_group,
             desired_manager_id,
             workspace_mode=workspace_mode,
@@ -4959,6 +4962,8 @@ class AppStore:
             install_task_manager_id = str(install_task.get("manager_id") or "").strip() if install_task else ""
             install_task_manager_name = str(install_task.get("manager_name") or "").strip() if install_task else ""
             install_task_group = str(install_task.get("group") or "").strip() if install_task else ""
+            install_task_config = self._pending_install_config(install_task)
+            install_task_local = str((install_task_config or {}).get("local") or "").strip()
             manager = None
             if install_task_manager_id:
                 manager = next(
@@ -4982,6 +4987,7 @@ class AppStore:
                 worker = WorkerRecord(
                     id=payload.worker_id,
                     name=worker_display_name,
+                    local=install_task_local or None,
                     manager_id=manager.id if manager else None,
                     manager_name=resolved_manager_name,
                     group=resolved_group,
@@ -5010,6 +5016,8 @@ class AppStore:
             else:
                 reconnect_notification = self._worker_reconnect_notification(existing, now=now, live=False)
                 existing.name = worker_display_name
+                if install_task_local:
+                    existing.local = install_task_local
                 existing.manager_id = manager.id if manager else existing.manager_id
                 existing.manager_name = resolved_manager_name
                 payload_group = resolved_group
@@ -6018,6 +6026,8 @@ class AppStore:
             install_task_manager_id = str(install_task.get("manager_id") or "").strip() if install_task else ""
             install_task_manager_name = str(install_task.get("manager_name") or "").strip() if install_task else ""
             install_task_group = str(install_task.get("group") or "").strip() if install_task else ""
+            install_task_config = self._pending_install_config(install_task)
+            install_task_local = str((install_task_config or {}).get("local") or "").strip()
             manager = next(
                 (
                     user
@@ -6053,6 +6063,7 @@ class AppStore:
                 worker = WorkerRecord(
                     id=payload.worker_id,
                     name=worker_display_name,
+                    local=install_task_local or None,
                     manager_id=manager.id if manager else None,
                     manager_name=resolved_manager_name,
                     group=resolved_group,
@@ -6073,6 +6084,8 @@ class AppStore:
             else:
                 reconnect_notification = self._worker_reconnect_notification(existing, now=now, live=True)
                 existing.name = worker_display_name
+                if install_task_local:
+                    existing.local = install_task_local
                 existing.manager_id = manager.id if manager else existing.manager_id
                 existing.manager_name = resolved_manager_name
                 existing.group = resolved_group
@@ -11106,6 +11119,7 @@ class AppStore:
         bot_type = self._bot_type_badge_data(workspace_kind, task_live_role)
         bot_function_key = "upload" if workspace_kind != "live" else "backup" if task_live_role == "backup" else "primary"
         pending_config = self._pending_install_config(task)
+        placeholder_local = str((pending_config or {}).get("local") or task.get("local") or "").strip()
         requested_threads = (
             self._normalize_live_worker_threads(
                 (pending_config or {}).get("threads") if (pending_config or {}).get("threads") is not None else task.get("threads") or 1
@@ -11152,6 +11166,7 @@ class AppStore:
             "manager_name": resolved_manager_name,
             "name": placeholder_name,
             "raw_name": placeholder_name,
+            "local": placeholder_local,
             "group": str(task.get("group") or "").strip() or "-",
             "bot_type_key": bot_type["key"],
             "bot_type_label": bot_type["label"],
@@ -11310,6 +11325,7 @@ class AppStore:
                     else self._resolve_worker_display_name(worker.id)
                 )
                 connection_profile = dict(self.worker_connection_profiles.get(worker.id) or {})
+                worker_local = str(getattr(worker, "local", None) or "").strip()
                 assigned_user_ids = [user.id for user in assigned_users]
                 assigned_user_names = [user.username for user in assigned_users]
                 if len(assigned_users) == 1:
@@ -11330,6 +11346,7 @@ class AppStore:
                     "manager_name": resolved_manager_name,
                     "name": worker_display_name,
                     "raw_name": worker_display_name,
+                    "local": worker_local,
                     "group": self._normalized_bot_group(worker.group),
                     "bot_type_key": bot_type["key"],
                     "bot_type_label": bot_type["label"],
@@ -12280,6 +12297,7 @@ class AppStore:
         self,
         worker_id: str,
         name: str,
+        local: str | None,
         group: str | None,
         manager_id: str | None,
         *,
@@ -12296,6 +12314,7 @@ class AppStore:
         normalized_name = str(name or "").strip()
         if not normalized_name:
             raise ValueError("Tên BOT là bắt buộc.")
+        normalized_local = str(local or "").strip() or None
         normalized_group = self._normalized_bot_group(group)
         normalized_password = str(password or "").strip()
         existing_connection_password = str(
@@ -12497,6 +12516,7 @@ class AppStore:
                     existing_link["note"] = self._live_assignment_note(selected_role)
 
         worker.name = normalized_name
+        worker.local = normalized_local
         self._apply_live_worker_manager(worker, manager)
         worker.group = normalized_group
         worker.capacity = self._effective_live_worker_thread_limit(worker)
@@ -12609,6 +12629,7 @@ class AppStore:
         self,
         worker_id: str,
         name: str,
+        local: str | None,
         group: str | None,
         manager_id: str | None,
         *,
@@ -12627,6 +12648,7 @@ class AppStore:
             self.update_live_bot(
                 worker_id,
                 name,
+                local,
                 group,
                 manager_id,
                 password=password,
@@ -12643,6 +12665,7 @@ class AppStore:
         normalized_name = str(name or "").strip()
         if not normalized_name:
             raise ValueError("Tên BOT là bắt buộc.")
+        normalized_local = str(local or "").strip() or None
         normalized_group = str(group or "").strip()
         normalized_password = str(password or "").strip()
         existing_connection_password = str(
@@ -12782,6 +12805,7 @@ class AppStore:
                     existing_link["note"] = str(existing_link.get("note") or "").strip() or "VPS được cấp"
 
             worker.name = normalized_name
+            worker.local = normalized_local
             self._apply_worker_manager(worker, manager)
             if normalized_group:
                 worker.group = normalized_group
@@ -12828,6 +12852,7 @@ class AppStore:
                     session_reason="Session đã đóng do BOT đã được chuyển sang manager khác.",
                 )
         worker.name = normalized_name
+        worker.local = normalized_local
         self._apply_worker_manager(worker, manager)
         if normalized_group:
             worker.group = normalized_group

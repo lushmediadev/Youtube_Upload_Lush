@@ -157,6 +157,13 @@ def _is_hot_standby_backup_stream(stream: dict) -> bool:
     return runtime_role == "backup" and is_runtime_clone and is_forever and end_time_live is None
 
 
+def _has_live_failover_backup(stream: dict) -> bool:
+    runtime_role = str(stream.get("runtime_role") or "").strip().lower()
+    is_runtime_clone = bool(stream.get("is_runtime_clone"))
+    backup_worker_id = str(stream.get("backup_worker_id") or "").strip()
+    return runtime_role != "backup" and not is_runtime_clone and bool(backup_worker_id)
+
+
 def _is_retriable_rtmp_output_error(exc: BaseException) -> bool:
     message = str(exc or "").casefold()
     if "ffmpeg live runtime failed" not in message:
@@ -169,6 +176,12 @@ def _is_retriable_rtmp_output_error(exc: BaseException) -> bool:
         "error closing file",
     )
     return any(token in message for token in retriable_tokens)
+
+
+def _should_retry_rtmp_output_error(stream: dict, exc: BaseException) -> bool:
+    if _has_live_failover_backup(stream):
+        return False
+    return _is_retriable_rtmp_output_error(exc)
 
 
 def _sleep_before_rtmp_retry(
@@ -957,7 +970,7 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
                     lifecycle_guard=lifecycle_guard,
                 )
             except RuntimeError as exc:
-                if not _is_retriable_rtmp_output_error(exc):
+                if not _should_retry_rtmp_output_error(stream, exc):
                     raise
                 if end_time_live and _now_local() >= end_time_live:
                     break

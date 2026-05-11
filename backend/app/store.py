@@ -5392,6 +5392,10 @@ class AppStore:
     def _live_worker_active_statuses() -> set[str]:
         return {"downloading", "preparing", "waiting", "streaming"}
 
+    @classmethod
+    def _live_worker_lease_refresh_statuses(cls) -> set[str]:
+        return {*cls._live_worker_active_statuses(), "disconnected"}
+
     @staticmethod
     def _live_fast_failover_lease_seconds() -> int:
         raw_value = str(os.getenv("LIVE_FAST_FAILOVER_LEASE_SECONDS", "20")).strip()
@@ -5932,8 +5936,9 @@ class AppStore:
     ) -> None:
         lease_base = now or self._now(trim=False)
         allowed_stream_ids = {str(stream_id).strip() for stream_id in (stream_ids or []) if str(stream_id).strip()}
+        lease_refresh_statuses = self._live_worker_lease_refresh_statuses()
         for stream in self.live_streams:
-            if stream.claimed_by_worker_id != worker_id or stream.status not in self._live_worker_active_statuses():
+            if stream.claimed_by_worker_id != worker_id or stream.status not in lease_refresh_statuses:
                 continue
             if allowed_stream_ids and stream.id not in allowed_stream_ids:
                 continue
@@ -6296,6 +6301,8 @@ class AppStore:
             return "Lỗi"
         if normalized == "scheduled":
             return "Lên lịch"
+        if normalized == "disconnected":
+            return "Mất kết nối"
         return "Khởi tạo"
 
     def update_live_stream_progress(
@@ -6385,6 +6392,7 @@ class AppStore:
             stream = self._find_claimed_live_stream(stream_id, worker_id)
             normalized_status = str(stream.status or "").strip().lower() or "scheduled"
             now = self._now(trim=False)
+            self._refresh_live_stream_leases(worker_id, now, stream_ids=[stream.id])
             playback_mode = self._desired_live_playback_mode(stream, now=now)
             explicit_stop_requested = stream.stop_requested_at is not None and normalized_status not in {"stopped", "ended", "error"}
             visible_stream = self._visible_live_stream_for_runtime(stream)

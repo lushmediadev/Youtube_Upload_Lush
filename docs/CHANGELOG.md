@@ -2,10 +2,11 @@
 
 ### 2026-05-11 21:20 - Live RTMP retry on ingest disconnect
 - Fixed: Live worker no longer marks a stream `error` immediately when FFmpeg hits RTMP output `Broken pipe` / `End of file` while already streaming.
-- Changed: Streaming loop now reports `disconnected`, waits a short retry delay, then reconnects RTMP until the scheduled end time.
-- Added: Unit coverage for classifying FFmpeg RTMP output failures as retryable.
-- Affected files: `workers/agent/live_runner.py`, `tests/test_live_rtmp_retry.py`
-- Impact/Risk: Medium; limits false terminal errors from transient YouTube/RTMP disconnects, but persistent invalid stream keys can still reconnect repeatedly until the schedule ends.
+- Changed: Streaming loop now reports `disconnected`, waits a short retry delay, then reconnects RTMP until the scheduled end time only for streams without a failover backup; primary streams with backup still yield to backup takeover.
+- Fixed: Runtime guard checks now refresh live stream leases so long prestream phases do not get reclaimed while the worker is still active.
+- Added: Unit coverage for retry classification, backup failover exclusion, and runtime lease refresh.
+- Affected files: `workers/agent/live_runner.py`, `backend/app/store.py`, `tests/test_live_rtmp_retry.py`, `tests/test_live_runtime_lease.py`
+- Impact/Risk: Medium; limits false terminal errors from transient YouTube/RTMP disconnects on non-backup streams while preserving the existing primary-to-backup failover contract.
 
 ### 2026-05-04 00:00 - VPS migration runbook
 - Added: `scripts/migrate_control_plane_vps.sh` to install a fresh control-plane checkout on a new VPS and copy runtime `.env` plus `backend-data` from a source VPS.

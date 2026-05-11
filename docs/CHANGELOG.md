@@ -1144,3 +1144,4 @@
 - 2026-05-11: Added a red onboarding warning under the add-channel login modal note telling users to let a newly logged-in channel sit on the VPS for 7 days before posting to reduce Google `Verify it's you` challenges.
 - 2026-05-11: Added a dedicated BOT `Local` field for region/location labels. The add-BOT modal now captures `Local` instead of overloading BOT name, the BOT table shows a `Local` column after `Loại bot`, and the edit-BOT modal can update `Local` separately from the technical BOT/IP name.
 - 2026-05-11: Polished the BOT `Local` column into a badge and enabled page-level BOT deletion behind a confirmation dialog plus pass check.
+- 2026-05-11: Bumped the admin table JS cache key so browsers load the page-delete support immediately after deploy.

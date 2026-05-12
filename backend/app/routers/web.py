@@ -1112,7 +1112,9 @@ async def admin_user_update(request: Request):
     )
     password = str(form.get("Password") or form.get("password") or "").strip() or None
     telegram = str(form.get("TelegramId") or form.get("telegram") or "").strip()
-    telegram_live = str(form.get("TelegramLiveId") or form.get("telegram_live") or "").strip()
+    telegram_live = None
+    if "TelegramLiveId" in form or "telegram_live" in form:
+        telegram_live = str(form.get("TelegramLiveId") or form.get("telegram_live") or "").strip()
     manager_id = _force_manager_binding(
         current_admin,
         str(form.get("UserIdManager") or form.get("manager_id") or "").strip() or None,

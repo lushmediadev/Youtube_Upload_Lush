@@ -1,5 +1,11 @@
 ﻿# Worklog
 
+### 2026-05-12
+- [x] Updated live normalize policy so `2160p/4K` sources keep original resolution instead of downscaling to `1440p`.
+- [x] Added a `2160p` bitrate/CRF profile: `maxrate=20000 kbps`, `bufsize=40000 kbps` through the existing `maxrate * 2` rule, `CRF=21`, `preset=veryfast`, audio AAC `128 kbps`.
+- [x] Kept GOP/keyframe cadence at 2 seconds (`-g` and `-keyint_min` computed from source FPS, `-sc_threshold 0`) to match YouTube ingest expectations.
+- [x] Updated worker config, bootstrap env generation, deploy env examples, and regression tests for `4K no downscale`, `>4K cap to 2160p`, and `4K fast-path within 20 Mbps`.
+
 ### 2026-05-11
 - [x] Investigated live streams that failed after entering `streaming`; all failures were FFmpeg RTMP output disconnects (`Broken pipe` / `End of file`) after YouTube ingest accepted data briefly.
 - [x] Added live worker retry handling so transient RTMP output disconnects move to `disconnected` and reconnect instead of becoming terminal `error` immediately for streams without failover backup.

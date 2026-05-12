@@ -389,19 +389,35 @@ def _resolve_live_video_normalize_plan(
 ) -> LiveVideoNormalizePlan:
     source_height = int(media_info.height or 0)
     source_width = int(media_info.width or 0)
-    inferred_height = source_height or source_width or 1080
+    if source_height:
+        inferred_height = source_height
+    elif source_width >= 3840:
+        inferred_height = 2160
+    elif source_width >= 2560:
+        inferred_height = 1440
+    else:
+        inferred_height = 1080
     scale_height = config.live_normalize_max_height if source_height > config.live_normalize_max_height else None
-    profile_height = 1440 if max(inferred_height, scale_height or 0) > 1080 else 1080
+    effective_height = scale_height or inferred_height
+    if effective_height > 1440:
+        profile_height = 2160
+    elif effective_height > 1080:
+        profile_height = 1440
+    else:
+        profile_height = 1080
     frame_rate = float(media_info.frame_rate or LIVE_NORMALIZE_DEFAULT_FRAME_RATE)
     if frame_rate <= 0:
         frame_rate = LIVE_NORMALIZE_DEFAULT_FRAME_RATE
     gop_frames = max(1, int(round(frame_rate * LIVE_NORMALIZE_TARGET_GOP_SECONDS)))
-    maxrate_kbps = (
-        config.live_normalize_1440_maxrate_kbps
-        if profile_height > 1080
-        else config.live_normalize_1080_maxrate_kbps
-    )
-    crf = config.live_normalize_1440_crf if profile_height > 1080 else config.live_normalize_1080_crf
+    if profile_height > 1440:
+        maxrate_kbps = config.live_normalize_2160_maxrate_kbps
+        crf = config.live_normalize_2160_crf
+    elif profile_height > 1080:
+        maxrate_kbps = config.live_normalize_1440_maxrate_kbps
+        crf = config.live_normalize_1440_crf
+    else:
+        maxrate_kbps = config.live_normalize_1080_maxrate_kbps
+        crf = config.live_normalize_1080_crf
     source_bitrate_kbps = (
         int(round(float(media_info.bit_rate_bps or 0) / 1000.0))
         if media_info.bit_rate_bps

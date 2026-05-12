@@ -59,8 +59,10 @@ class WorkerConfig:
     live_normalize_max_height: int
     live_normalize_1080_maxrate_kbps: int
     live_normalize_1440_maxrate_kbps: int
+    live_normalize_2160_maxrate_kbps: int
     live_normalize_1080_crf: int
     live_normalize_1440_crf: int
+    live_normalize_2160_crf: int
     live_normalize_audio_bitrate_kbps: int
     network_retry_base_seconds: float
     network_retry_max_seconds: float
@@ -103,11 +105,13 @@ def load_config() -> WorkerConfig:
         live_normalize_concurrency=max(1, int(os.getenv("WORKER_LIVE_NORMALIZE_CONCURRENCY", "1"))),
         live_normalize_threads=max(1, int(os.getenv("WORKER_LIVE_NORMALIZE_THREADS", "2"))),
         live_normalize_preset=os.getenv("WORKER_LIVE_NORMALIZE_PRESET", "veryfast").strip() or "veryfast",
-        live_normalize_max_height=max(720, int(os.getenv("WORKER_LIVE_NORMALIZE_MAX_HEIGHT", "1440"))),
+        live_normalize_max_height=max(720, int(os.getenv("WORKER_LIVE_NORMALIZE_MAX_HEIGHT", "2160"))),
         live_normalize_1080_maxrate_kbps=max(1000, int(os.getenv("WORKER_LIVE_NORMALIZE_1080_MAXRATE_KBPS", "6000"))),
         live_normalize_1440_maxrate_kbps=max(2000, int(os.getenv("WORKER_LIVE_NORMALIZE_1440_MAXRATE_KBPS", "13000"))),
+        live_normalize_2160_maxrate_kbps=max(4000, int(os.getenv("WORKER_LIVE_NORMALIZE_2160_MAXRATE_KBPS", "20000"))),
         live_normalize_1080_crf=max(16, int(os.getenv("WORKER_LIVE_NORMALIZE_1080_CRF", "23"))),
         live_normalize_1440_crf=max(16, int(os.getenv("WORKER_LIVE_NORMALIZE_1440_CRF", "22"))),
+        live_normalize_2160_crf=max(16, int(os.getenv("WORKER_LIVE_NORMALIZE_2160_CRF", "21"))),
         live_normalize_audio_bitrate_kbps=max(64, int(os.getenv("WORKER_LIVE_NORMALIZE_AUDIO_BITRATE_KBPS", "128"))),
         network_retry_base_seconds=float(os.getenv("WORKER_NETWORK_RETRY_BASE_SECONDS", "3")),
         network_retry_max_seconds=float(os.getenv("WORKER_NETWORK_RETRY_MAX_SECONDS", "30")),

@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+### 2026-05-12 00:00 - Live normalize 4K profile
+- Changed: Live normalize now preserves `2160p/4K` sources instead of downscaling them to `1440p`.
+- Added: New `2160p` normalize profile with `WORKER_LIVE_NORMALIZE_2160_MAXRATE_KBPS=20000`, `WORKER_LIVE_NORMALIZE_2160_CRF=21`, and default `WORKER_LIVE_NORMALIZE_MAX_HEIGHT=2160`.
+- Kept: Normalize still uses `libx264`, `preset=veryfast`, AAC `128 kbps`, and 2-second GOP/keyframe cadence via `-g/-keyint_min` with scene cut disabled.
+- Affected files: `workers/agent/live_runner.py`, `workers/agent/config.py`, `backend/app/worker_bootstrap.py`, `scripts/bootstrap_worker.sh`, `.env.example`, `.env.production.example`, `tests/test_live_normalize_policy.py`, `tests/test_worker_cleanup.py`, `docs/DECISIONS.md`, `docs/DECISIONS_INDEX.md`, `docs/WORKLOG.md`, `docs/CHANGELOG.md`
+- Impact/Risk: Medium; 4K live prepare may use more CPU/disk than old 1440p downscale, but keeps source resolution and caps bitrate to the requested 20 Mbps profile.
+
 ### 2026-05-11 21:20 - Live RTMP retry on ingest disconnect
 - Fixed: Live worker no longer marks a stream `error` immediately when FFmpeg hits RTMP output `Broken pipe` / `End of file` while already streaming.
 - Changed: Streaming loop now reports `disconnected`, waits a short retry delay, then reconnects RTMP until the scheduled end time only for streams without a failover backup; primary streams with backup still yield to backup takeover.

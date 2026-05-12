@@ -893,6 +893,7 @@ def _run_hot_standby_backup_loop(
     client: httpx.Client,
     config: WorkerConfig,
     *,
+    stream: dict,
     stream_id: str,
     rendered_path: Path,
     rendered_duration: float,
@@ -903,6 +904,7 @@ def _run_hot_standby_backup_loop(
     standby_message = "Backup đã sẵn sàng, đang chờ tiếp quản luồng"
     report_progress("waiting", 100, standby_message, force=True)
 
+    rtmp_retry_count = 0
     while True:
         runtime_state = lifecycle_guard(force=True) if lifecycle_guard else None
         playback_mode = str(getattr(runtime_state, "playback_mode", "") or "standby").strip().lower() if runtime_state is not None else "standby"
@@ -911,23 +913,58 @@ def _run_hot_standby_backup_loop(
             time.sleep(0.5)
             continue
 
-        stream_result = _stream_once(
-            client,
-            config,
-            stream_id=stream_id,
-            rendered_path=rendered_path,
-            rendered_duration=rendered_duration,
-            rtmp_target=rtmp_target,
-            report_progress=report_progress,
-            end_time_live=None,
-            lifecycle_guard=lifecycle_guard,
-            expected_playback_mode="stream",
-        )
+        try:
+            stream_result = _stream_once(
+                client,
+                config,
+                stream_id=stream_id,
+                rendered_path=rendered_path,
+                rendered_duration=rendered_duration,
+                rtmp_target=rtmp_target,
+                report_progress=report_progress,
+                end_time_live=None,
+                lifecycle_guard=lifecycle_guard,
+                expected_playback_mode="stream",
+            )
+        except RuntimeError as exc:
+            if not _should_retry_rtmp_output_error(stream, exc):
+                raise
+            rtmp_retry_count += 1
+            retry_delay = LIVE_RTMP_RETRY_DELAY_SECONDS
+            print(
+                (
+                    "[live] backup RTMP output disconnected; retrying "
+                    f"stream_id={stream_id} "
+                    f"attempt={rtmp_retry_count} "
+                    f"delay_seconds={retry_delay:.1f}: {exc}"
+                ),
+                flush=True,
+            )
+            report_progress(
+                "disconnected",
+                0,
+                f"Backup m\u1ea5t k\u1ebft n\u1ed1i RTMP, th\u1eed n\u1ed1i l\u1ea1i l\u1ea7n {rtmp_retry_count} sau {int(retry_delay)} gi\u00e2y",
+                force=True,
+            )
+            _sleep_before_rtmp_retry(
+                delay_seconds=retry_delay,
+                end_time_live=None,
+                lifecycle_guard=lifecycle_guard,
+            )
+            report_progress(
+                "streaming",
+                0,
+                f"Backup \u0111ang n\u1ed1i l\u1ea1i RTMP l\u1ea7n {rtmp_retry_count}",
+                force=True,
+            )
+            continue
         if stream_result == "paused":
+            rtmp_retry_count = 0
             report_progress("waiting", 100, standby_message, force=True)
             continue
         if stream_result == "ended":
             break
+        rtmp_retry_count = 0
 
 
 def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) -> None:
@@ -987,6 +1024,7 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
             _run_hot_standby_backup_loop(
                 client,
                 config,
+                stream=stream,
                 stream_id=stream_id,
                 rendered_path=rendered_path,
                 rendered_duration=rendered_duration,

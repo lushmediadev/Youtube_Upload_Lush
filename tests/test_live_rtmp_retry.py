@@ -3,8 +3,12 @@ from __future__ import annotations
 import unittest
 import sys
 import types
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.modules.setdefault("gdown", types.ModuleType("gdown"))
+from workers.agent import live_runner
 from workers.agent.live_runner import _is_retriable_rtmp_output_error, _should_retry_rtmp_output_error
 
 
@@ -54,6 +58,46 @@ class LiveRtmpRetryTests(unittest.TestCase):
                 exc,
             )
         )
+
+    def test_retries_hot_standby_backup_stream_after_rtmp_disconnect(self) -> None:
+        calls: list[str] = []
+        statuses: list[str] = []
+
+        def fake_stream_once(*args, **kwargs) -> str:
+            calls.append("stream")
+            if len(calls) == 1:
+                raise RuntimeError(
+                    "FFmpeg live runtime failed (224).\n"
+                    "RTMP output disconnected\n"
+                    "Error submitting a packet to the muxer: Connection reset by peer\n"
+                    "Error writing trailer: Connection reset by peer"
+                )
+            return "ended"
+
+        def report_progress(status: str, progress: int, message: str, *, force: bool = False) -> None:
+            statuses.append(status)
+
+        def lifecycle_guard(*, force: bool = False):
+            return SimpleNamespace(playback_mode="stream")
+
+        with (
+            patch.object(live_runner, "_stream_once", side_effect=fake_stream_once),
+            patch.object(live_runner, "_sleep_before_rtmp_retry"),
+        ):
+            live_runner._run_hot_standby_backup_loop(
+                client=None,
+                config=object(),
+                stream={"runtime_role": "backup", "is_runtime_clone": True},
+                stream_id="live-backup",
+                rendered_path=Path("rendered.flv"),
+                rendered_duration=1.0,
+                rtmp_target="rtmps://b.rtmps.youtube.com/live2/key",
+                report_progress=report_progress,
+                lifecycle_guard=lifecycle_guard,
+            )
+
+        self.assertEqual(len(calls), 2)
+        self.assertIn("disconnected", statuses)
 
 
 if __name__ == "__main__":

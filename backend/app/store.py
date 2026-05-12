@@ -5408,7 +5408,7 @@ class AppStore:
 
     @staticmethod
     def _backup_rtmp_url() -> str:
-        return "rtmp://y.rtmp.youtube.com/live2?backup=1"
+        return "rtmps://b.rtmps.youtube.com/live2?backup=1"
 
     @staticmethod
     def _live_worker_active_statuses() -> set[str]:

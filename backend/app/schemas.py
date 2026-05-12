@@ -193,7 +193,7 @@ class LiveStreamRecord(BaseModel):
     backup_stream_id: str | None = None
     stream_name: str
     stream_key: str
-    rtmp_url: str = "rtmp://x.rtmp.youtube.com/live2"
+    rtmp_url: str = "rtmps://a.rtmps.youtube.com/live2"
     platform: LivePlatform = "youtube_rtmp"
     video_url: str
     audio_url: str | None = None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import urlsplit, urlunsplit
 import shutil
 import subprocess
 import time
@@ -37,6 +38,8 @@ LIVE_COPY_SUPPORTED_VIDEO_CODECS = {"h264"}
 LIVE_COPY_SUPPORTED_AUDIO_CODECS = {"aac", "mp3"}
 LIVE_NORMALIZE_TARGET_GOP_SECONDS = 2.0
 LIVE_NORMALIZE_DEFAULT_FRAME_RATE = 25.0
+YOUTUBE_RTMPS_PRIMARY_URL = "rtmps://a.rtmps.youtube.com/live2"
+YOUTUBE_RTMPS_BACKUP_URL = "rtmps://b.rtmps.youtube.com/live2?backup=1"
 _LIVE_NORMALIZE_SLOT_LOCK = Lock()
 _LIVE_NORMALIZE_SLOT: Semaphore | None = None
 _LIVE_NORMALIZE_SLOT_LIMIT = 0
@@ -141,12 +144,37 @@ def _parse_control_plane_datetime(value: str | None) -> datetime | None:
     return parsed
 
 
+def _normalize_youtube_ingest_url(base_url: str | None) -> str:
+    cleaned = str(base_url or "").strip()
+    if not cleaned:
+        return YOUTUBE_RTMPS_PRIMARY_URL
+    parsed = urlsplit(cleaned)
+    host = parsed.hostname or ""
+    if parsed.scheme == "rtmp" and host.endswith(".rtmp.youtube.com"):
+        host_prefix = host.split(".", 1)[0].lower()
+        target = YOUTUBE_RTMPS_BACKUP_URL if host_prefix in {"b", "y"} else YOUTUBE_RTMPS_PRIMARY_URL
+        if parsed.query and "backup=1" in parsed.query:
+            target = YOUTUBE_RTMPS_BACKUP_URL
+        return target
+    if cleaned == "rtmp://x.rtmp.youtube.com/live2":
+        return YOUTUBE_RTMPS_PRIMARY_URL
+    if cleaned == "rtmp://y.rtmp.youtube.com/live2?backup=1":
+        return YOUTUBE_RTMPS_BACKUP_URL
+    return cleaned
+
+
+def _append_stream_key_to_ingest_url(base_url: str, stream_key: str) -> str:
+    parsed = urlsplit(str(base_url or "").strip())
+    path = f"{parsed.path.rstrip('/')}/{stream_key}"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment))
+
+
 def _rtmp_target(stream: dict) -> str:
-    base_url = str(stream.get("rtmp_url") or "rtmp://x.rtmp.youtube.com/live2").strip().rstrip("/")
+    base_url = _normalize_youtube_ingest_url(stream.get("rtmp_url"))
     stream_key = str(stream.get("stream_key") or "").strip()
     if not stream_key:
         raise ValueError("Thiếu stream_key cho live runtime.")
-    return f"{base_url}/{stream_key}"
+    return _append_stream_key_to_ingest_url(base_url, stream_key)
 
 
 def _is_hot_standby_backup_stream(stream: dict) -> bool:

@@ -181,8 +181,8 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.assertIn("[LIVE] Luồng live đã kết thúc", self.store.live_notifications[0][1])
         self.assertNotIn("mất kết nối", self.store.live_notifications[0][1].casefold())
 
-    def test_editing_prestream_live_waits_for_old_runtime_to_exit_before_reclaim(self) -> None:
-        for status in ("downloading", "preparing", "waiting"):
+    def test_editing_downloading_or_preparing_live_is_locked(self) -> None:
+        for status in ("downloading", "preparing"):
             with self.subTest(status=status):
                 self.setUp()
                 scheduled_start = datetime.now() + timedelta(hours=1)
@@ -195,90 +195,113 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
                 stream.end_time_live = None
                 self.store.live_streams = [stream]
 
-                updated = self.store.update_live_stream(
-                    stream_id=stream.id,
-                    stream_name="edited live",
-                    primary_worker_id="live-worker-01",
-                    stream_key="edited-key",
-                    video_url="https://example.com/edited.mp4",
-                    is_forever=True,
-                    start_time_live=scheduled_start,
-                )
-
-                self.assertEqual(updated.status, "scheduled")
-                self.assertIsNone(updated.claimed_by_worker_id)
-
                 with self.assertRaises(ValueError):
-                    self.store.update_live_stream_progress(
+                    self.store.update_live_stream(
                         stream_id=stream.id,
-                        worker_id="live-worker-01",
-                        shared_secret=self.store.get_worker_shared_secret(),
-                        status="waiting",
-                        progress=100,
-                        message="old runtime should not update after edit",
+                        stream_name="edited live",
+                        primary_worker_id="live-worker-01",
+                        stream_key="edited-key",
+                        video_url="https://example.com/edited.mp4",
+                        is_forever=True,
+                        start_time_live=scheduled_start,
                     )
+                self.assertFalse(self.store._live_stream_display_row(stream)["can_edit"])
 
-                _, claimed = self.store.claim_next_live_stream(
-                    "live-worker-01",
-                    self.store.get_worker_shared_secret(),
-                )
-                self.assertIsNone(claimed)
+    def test_editing_waiting_live_waits_for_old_runtime_to_exit_before_reclaim(self) -> None:
+        scheduled_start = datetime.now() + timedelta(hours=1)
+        stream = make_stream(
+            status="waiting",
+            lease_expires_at=datetime.now() + timedelta(minutes=10),
+        )
+        stream.start_time_live = scheduled_start
+        stream.is_forever = True
+        stream.end_time_live = None
+        self.store.live_streams = [stream]
 
-                self.store.heartbeat_live_worker(
-                    type(
-                        "Payload",
-                        (),
-                        {
-                            "worker_id": "live-worker-01",
-                            "shared_secret": self.store.get_worker_shared_secret(),
-                            "status": "busy",
-                            "load_percent": 0,
-                            "ram_percent": 0,
-                            "ram_used_gb": 0.0,
-                            "ram_total_gb": 0.0,
-                            "bandwidth_kbps": 0.0,
-                            "disk_used_gb": 0.0,
-                            "disk_total_gb": 100.0,
-                            "capacity": 1,
-                            "active_stream_ids": [stream.id],
-                        },
-                    )()
-                )
-                self.assertIsNotNone(self.store.live_streams[0].stop_requested_at)
+        updated = self.store.update_live_stream(
+            stream_id=stream.id,
+            stream_name="edited live",
+            primary_worker_id="live-worker-01",
+            stream_key="edited-key",
+            video_url="https://example.com/edited.mp4",
+            is_forever=True,
+            start_time_live=scheduled_start,
+        )
 
-                self.store.heartbeat_live_worker(
-                    type(
-                        "Payload",
-                        (),
-                        {
-                            "worker_id": "live-worker-01",
-                            "shared_secret": self.store.get_worker_shared_secret(),
-                            "status": "online",
-                            "load_percent": 0,
-                            "ram_percent": 0,
-                            "ram_used_gb": 0.0,
-                            "ram_total_gb": 0.0,
-                            "bandwidth_kbps": 0.0,
-                            "disk_used_gb": 0.0,
-                            "disk_total_gb": 100.0,
-                            "capacity": 1,
-                            "active_stream_ids": [],
-                        },
-                    )()
-                )
+        self.assertEqual(updated.status, "scheduled")
+        self.assertIsNone(updated.claimed_by_worker_id)
 
-                _, claimed = self.store.claim_next_live_stream(
-                    "live-worker-01",
-                    self.store.get_worker_shared_secret(),
-                )
-                self.assertIsNotNone(claimed)
-                self.assertIsNone(claimed.stop_requested_at)
-                state = self.store.get_live_stream_runtime_state(
-                    stream_id=stream.id,
-                    worker_id="live-worker-01",
-                    shared_secret=self.store.get_worker_shared_secret(),
-                )
-                self.assertFalse(state["should_stop"])
+        with self.assertRaises(ValueError):
+            self.store.update_live_stream_progress(
+                stream_id=stream.id,
+                worker_id="live-worker-01",
+                shared_secret=self.store.get_worker_shared_secret(),
+                status="waiting",
+                progress=100,
+                message="old runtime should not update after edit",
+            )
+
+        _, claimed = self.store.claim_next_live_stream(
+            "live-worker-01",
+            self.store.get_worker_shared_secret(),
+        )
+        self.assertIsNone(claimed)
+
+        self.store.heartbeat_live_worker(
+            type(
+                "Payload",
+                (),
+                {
+                    "worker_id": "live-worker-01",
+                    "shared_secret": self.store.get_worker_shared_secret(),
+                    "status": "busy",
+                    "load_percent": 0,
+                    "ram_percent": 0,
+                    "ram_used_gb": 0.0,
+                    "ram_total_gb": 0.0,
+                    "bandwidth_kbps": 0.0,
+                    "disk_used_gb": 0.0,
+                    "disk_total_gb": 100.0,
+                    "capacity": 1,
+                    "active_stream_ids": [stream.id],
+                },
+            )()
+        )
+        self.assertIsNotNone(self.store.live_streams[0].stop_requested_at)
+
+        self.store.heartbeat_live_worker(
+            type(
+                "Payload",
+                (),
+                {
+                    "worker_id": "live-worker-01",
+                    "shared_secret": self.store.get_worker_shared_secret(),
+                    "status": "online",
+                    "load_percent": 0,
+                    "ram_percent": 0,
+                    "ram_used_gb": 0.0,
+                    "ram_total_gb": 0.0,
+                    "bandwidth_kbps": 0.0,
+                    "disk_used_gb": 0.0,
+                    "disk_total_gb": 100.0,
+                    "capacity": 1,
+                    "active_stream_ids": [],
+                },
+            )()
+        )
+
+        _, claimed = self.store.claim_next_live_stream(
+            "live-worker-01",
+            self.store.get_worker_shared_secret(),
+        )
+        self.assertIsNotNone(claimed)
+        self.assertIsNone(claimed.stop_requested_at)
+        state = self.store.get_live_stream_runtime_state(
+            stream_id=stream.id,
+            worker_id="live-worker-01",
+            shared_secret=self.store.get_worker_shared_secret(),
+        )
+        self.assertFalse(state["should_stop"])
 
 
 if __name__ == "__main__":

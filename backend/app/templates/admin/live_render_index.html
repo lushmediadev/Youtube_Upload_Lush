@@ -117,10 +117,17 @@
                                     </button>
                                 </form>
                                 {% endif %}
+                                {% if render.can_edit %}
                                 <a href="{{ live_index_href }}?edit={{ render.id | e }}{% for manager_id in dashboard.selected_manager_ids | default([], true) %}&manager_ids={{ manager_id | e }}{% endfor %}{% if dashboard.selected_user_id %}&userId={{ dashboard.selected_user_id | e }}{% endif %}" class="action-btn action-btn-emerald">
                                     <i data-lucide="pencil" class="h-3.5 w-3.5"></i>
                                     Sửa
                                 </a>
+                                {% else %}
+                                <button type="button" disabled title="Lu&#7891;ng &#273;ang t&#7843;i ho&#7863;c chu&#7849;n b&#7883;, h&#227;y ch&#7901; &#273;&#7871;n pha Ch&#7901; gi&#7901; &#273;&#7875; s&#7917;a." class="action-btn action-btn-slate opacity-60 cursor-not-allowed">
+                                    <i data-lucide="pencil" class="h-3.5 w-3.5"></i>
+                                    S&#7917;a
+                                </button>
+                                {% endif %}
                                 <a href="{{ live_index_href }}?detail={{ render.id | e }}{% for manager_id in dashboard.selected_manager_ids | default([], true) %}&manager_ids={{ manager_id | e }}{% endfor %}{% if dashboard.selected_user_id %}&userId={{ dashboard.selected_user_id | e }}{% endif %}" class="action-btn action-btn-slate">
                                     <i data-lucide="eye" class="h-3.5 w-3.5"></i>
                                     Chi ti&#7871;t

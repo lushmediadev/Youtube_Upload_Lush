@@ -5635,10 +5635,16 @@ class AppStore:
     def _is_live_stream_runtime_locked(self, stream: LiveStreamRecord) -> bool:
         effective_runtime = self._effective_live_runtime_stream(stream)
         effective_status = str(effective_runtime.status or "").strip().lower() or "scheduled"
-        if effective_status in {"streaming", "disconnected"}:
+        if effective_status in {"downloading", "preparing", "streaming", "disconnected"}:
             return True
         primary_status = str(stream.status or "").strip().lower() or "scheduled"
-        if primary_status in {"streaming", "disconnected"}:
+        if primary_status in {"downloading", "preparing", "streaming", "disconnected"}:
+            return True
+        if (
+            stream.stop_requested_at is not None
+            and primary_status == "scheduled"
+            and not self._has_live_stream_started(stream)
+        ):
             return True
         return False
 

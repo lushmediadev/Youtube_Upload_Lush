@@ -86,6 +86,55 @@ class BotLocalTests(unittest.TestCase):
         self.assertEqual(row["name"], "82.197.71.52")
         self.assertEqual(row["local"], "UK")
 
+    def test_empty_live_bot_update_persists_backup_role(self) -> None:
+        self.store.workers = []
+        self.store.live_workers = [make_worker("live-worker-01")]
+
+        self.store.update_bot(
+            "live-worker-01",
+            "62.146.169.168",
+            "US-west",
+            "workers",
+            None,
+            workspace_mode="live",
+            live_role="backup",
+            threads=5,
+            assigned_user_ids=[],
+        )
+
+        self.assertEqual(self.store.live_workers[0].live_role, "backup")
+        rows = self.store._build_bot_rows(workspace_mode="live")
+        self.assertEqual(rows[0]["bot_function_key"], "backup")
+        self.assertEqual(rows[0]["bot_type_label"], "Backup")
+        self.assertEqual(rows[0]["assigned_live_role"], "backup")
+
+    def test_pending_live_conversion_without_users_persists_backup_role(self) -> None:
+        self.store.workers = []
+        self.store.live_workers = [make_worker("live-worker-08")]
+
+        self.store._apply_pending_install_config(
+            {
+                "requested_by": "admin",
+                "requested_role": "admin",
+                "requested_user_id": "admin-1",
+                "post_install_config": {
+                    "name": "62.72.46.42",
+                    "local": "US-west",
+                    "group": "workers",
+                    "live_role": "backup",
+                    "threads": 5,
+                    "assigned_user_ids": [],
+                },
+            },
+            worker_id="live-worker-08",
+            workspace_mode="live",
+        )
+
+        self.assertEqual(self.store.live_workers[0].live_role, "backup")
+        rows = self.store._build_bot_rows(workspace_mode="live")
+        self.assertEqual(rows[0]["bot_function_key"], "backup")
+        self.assertEqual(rows[0]["bot_type_label"], "Backup")
+
     def test_update_user_manager_refreshes_bot_picker_scope_without_restart(self) -> None:
         self.store.users = [
             UserSummary(id="admin-1", username="admin", display_name="admin", role="admin"),

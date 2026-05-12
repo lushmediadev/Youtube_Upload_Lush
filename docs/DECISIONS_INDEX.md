@@ -50,6 +50,8 @@
 | DEC-044 | Inactive BOT alert chay hang ngay luc 8h sang, dem allocation `user + BOT` khong co upload/live job moi qua 10 ngay, route manager theo `manager_id`, va throttle theo daily attempt de tranh retry storm | Active | backend ops notifications | Medium |
 | DEC-045 | Live job chi cho sua khi chua vao runtime nang hoac da den pha `waiting`; `downloading/preparing` phai khoa nut `Sửa` va backend update de tranh race runtime cu | Active | live runtime + edit safety | High |
 
+| DEC-046 | BOT live/backup phai co `live_role` mac dinh tren chinh `WorkerRecord`; assignment `user + BOT` chi la quota/scope va khong duoc la noi duy nhat luu chuc nang BOT | Active | live admin assignment + bot metadata | High |
+
 ## Notes
 - `docs/DECISIONS.md` van giu full history va ly do chi tiet.
 - `docs/modules/*.md` nen reference `DEC-xxx` thay vi copy lai noi dung decision.

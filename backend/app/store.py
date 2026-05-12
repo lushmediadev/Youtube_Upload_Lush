@@ -6087,6 +6087,16 @@ class AppStore:
             install_task_group = str(install_task.get("group") or "").strip() if install_task else ""
             install_task_config = self._pending_install_config(install_task)
             install_task_local = str((install_task_config or {}).get("local") or "").strip()
+            raw_install_live_role = str(
+                (install_task_config or {}).get("live_role")
+                or (install_task or {}).get("live_role")
+                or ""
+            ).strip()
+            install_live_role = (
+                self._normalize_live_assignment_role(raw_install_live_role)
+                if raw_install_live_role
+                else None
+            )
             manager = next(
                 (
                     user
@@ -6123,6 +6133,7 @@ class AppStore:
                     id=payload.worker_id,
                     name=worker_display_name,
                     local=install_task_local or None,
+                    live_role=install_live_role,
                     manager_id=manager.id if manager else None,
                     manager_name=resolved_manager_name,
                     group=resolved_group,
@@ -6145,6 +6156,8 @@ class AppStore:
                 existing.name = worker_display_name
                 if install_task_local:
                     existing.local = install_task_local
+                if install_live_role:
+                    existing.live_role = install_live_role
                 existing.manager_id = manager.id if manager else existing.manager_id
                 existing.manager_name = resolved_manager_name
                 existing.group = resolved_group
@@ -11331,6 +11344,17 @@ class AppStore:
             return next(iter(role_values))
         if role_values:
             return "mixed"
+        worker = next(
+            (
+                item
+                for item in self.live_workers
+                if str(item.id or "").strip() == str(worker_id or "").strip()
+            ),
+            None,
+        )
+        stored_role = str(getattr(worker, "live_role", None) or "").strip()
+        if stored_role:
+            return self._normalize_live_assignment_role(stored_role)
         return ""
 
     def _build_bot_rows(self, manager_ids: list[str] | None = None, *, workspace_mode: str = "upload") -> list[dict[str, Any]]:
@@ -12538,6 +12562,11 @@ class AppStore:
                     if self._live_link_allocated_threads(existing_link) != normalized_threads:
                         assignment_changed = True
                         break
+            stored_live_role = str(getattr(worker, "live_role", None) or "").strip()
+            worker_default_live_role = (
+                normalized_live_role
+                or (self._normalize_live_assignment_role(stored_live_role) if stored_live_role else None)
+            )
             if should_apply_threads_to_all_selected:
                 projected_total_allocated_threads = normalized_threads * len(selected_user_id_set)
             else:
@@ -12560,7 +12589,7 @@ class AppStore:
             for assigned_user in selected_users:
                 existing_link = current_links_by_user_id.get(assigned_user.id)
                 selected_role = (
-                    normalized_live_role
+                    worker_default_live_role
                     or (
                         self._normalize_live_assignment_role(existing_link.get("live_role"), fallback_note=existing_link.get("note"))
                         if existing_link is not None
@@ -12602,6 +12631,8 @@ class AppStore:
 
         worker.name = normalized_name
         worker.local = normalized_local
+        if normalized_live_role:
+            worker.live_role = normalized_live_role
         self._apply_live_worker_manager(worker, manager)
         worker.group = normalized_group
         worker.capacity = self._effective_live_worker_thread_limit(worker)

@@ -49,6 +49,7 @@ class WorkerRecord(BaseModel):
     id: str
     name: str
     local: str | None = None
+    live_role: LiveRuntimeRole | None = None
     manager_id: str | None = None
     manager_name: str
     group: str | None = None

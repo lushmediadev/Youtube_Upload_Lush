@@ -12017,6 +12017,7 @@ class AppStore:
         if role not in {"user", "manager", "admin"}:
             raise ValueError("Role không hợp lệ.")
 
+        manager_id_value: str | None = None
         manager_name: str | None = None
         if role == "user":
             if not manager_id:
@@ -12025,10 +12026,20 @@ class AppStore:
                 manager = self._find_user(manager_id)
                 if manager.role != "manager":
                     raise ValueError("Manager được chọn không hợp lệ.")
+                manager_id_value = manager.id
                 manager_name = manager.username
 
         user_id = f"user-{uuid4().hex[:8]}"
-        self.users.append(UserSummary(id=user_id, username=username, display_name=display_name, role=role, manager_name=manager_name))  # type: ignore[arg-type]
+        self.users.append(
+            UserSummary(
+                id=user_id,
+                username=username,
+                display_name=display_name,
+                role=role,
+                manager_id=manager_id_value,
+                manager_name=manager_name,
+            )
+        )  # type: ignore[arg-type]
         self.user_meta[user_id] = {
             "password_hash": self._hash_password(password.strip()),
             "password_algo": "pbkdf2_sha256",
@@ -12126,13 +12137,16 @@ class AppStore:
 
         if user.role == "user":
             if not manager_id:
+                user.manager_id = None
                 user.manager_name = None
             else:
                 manager = self._find_user(manager_id)
                 if manager.role != "manager":
                     raise ValueError("Manager được chọn không hợp lệ.")
+                user.manager_id = manager.id
                 user.manager_name = manager.username
         else:
+            user.manager_id = None
             user.manager_name = None
 
         meta = self._user_meta_record(user_id)
@@ -12180,6 +12194,7 @@ class AppStore:
             if user.role == "admin":
                 raise ValueError("Admin hiện tại không cần gán thêm quyền manager.")
             user.role = "manager"
+            user.manager_id = None
             user.manager_name = None
         else:
             if user.role != "manager":
@@ -12187,6 +12202,7 @@ class AppStore:
             if any(item.role == "user" and item.manager_name == user.username for item in self.users):
                 raise ValueError("Manager này đang quản lý user khác, chưa thể gỡ quyền.")
             user.role = "user"
+            user.manager_id = None
             user.manager_name = None
 
         meta = self._user_meta_record(user_id)
@@ -12198,6 +12214,7 @@ class AppStore:
         user = self._find_user(user_id)
         if promote:
             user.role = "admin"
+            user.manager_id = None
             user.manager_name = None
         else:
             if user.role != "admin":
@@ -12205,6 +12222,7 @@ class AppStore:
             if len([item for item in self.users if item.role == "admin"]) <= 1:
                 raise ValueError("Không thể gỡ quyền admin cuối cùng.")
             user.role = "user"
+            user.manager_id = None
             user.manager_name = None
 
         meta = self._user_meta_record(user_id)

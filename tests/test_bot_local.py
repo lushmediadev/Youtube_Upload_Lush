@@ -4,7 +4,7 @@ from datetime import datetime
 
 os.environ.setdefault("APP_ENABLE_LIVE_DEMO_SEED", "0")
 
-from backend.app.schemas import WorkerRecord
+from backend.app.schemas import UserSummary, WorkerRecord
 from backend.app.store import AppStore
 
 
@@ -85,6 +85,64 @@ class BotLocalTests(unittest.TestCase):
 
         self.assertEqual(row["name"], "82.197.71.52")
         self.assertEqual(row["local"], "UK")
+
+    def test_update_user_manager_refreshes_bot_picker_scope_without_restart(self) -> None:
+        self.store.users = [
+            UserSummary(id="admin-1", username="admin", display_name="admin", role="admin"),
+            UserSummary(id="manager-old", username="manager", display_name="manager", role="manager"),
+            UserSummary(id="manager-new", username="thanh", display_name="thanh", role="manager"),
+            UserSummary(
+                id="user-1",
+                username="user1",
+                display_name="user1",
+                role="user",
+                manager_id="manager-old",
+                manager_name="manager",
+            ),
+        ]
+
+        updated = self.store.update_admin_user(
+            user_id="user-1",
+            username="user1",
+            password=None,
+            manager_id="manager-new",
+            actor_role="admin",
+            updated_by="admin",
+        )
+
+        self.assertEqual(updated.manager_name, "thanh")
+        self.assertEqual(updated.manager_id, "manager-new")
+        option = next(
+            item for item in self.store._combined_bot_user_options(viewer_role="admin", viewer_id="admin-1")
+            if item["id"] == "user-1"
+        )
+        self.assertEqual(option["manager_id"], "manager-new")
+
+    def test_create_user_manager_scope_is_available_to_bot_picker_without_restart(self) -> None:
+        self.store.users = [
+            UserSummary(id="admin-1", username="admin", display_name="admin", role="admin"),
+            UserSummary(id="manager-new", username="thanh", display_name="thanh", role="manager"),
+        ]
+        self.store.user_meta = {"admin-1": {}}
+
+        created = self.store.create_admin_user(
+            username="user1",
+            display_name="user1",
+            password="secret123",
+            role="user",
+            manager_id="manager-new",
+            telegram=None,
+            updated_by="admin",
+        )
+        user = self.store._find_user(created["user_id"])
+
+        self.assertEqual(user.manager_name, "thanh")
+        self.assertEqual(user.manager_id, "manager-new")
+        option = next(
+            item for item in self.store._combined_bot_user_options(viewer_role="admin", viewer_id="admin-1")
+            if item["id"] == created["user_id"]
+        )
+        self.assertEqual(option["manager_id"], "manager-new")
 
 
 if __name__ == "__main__":

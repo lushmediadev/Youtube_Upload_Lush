@@ -5952,6 +5952,24 @@ class AppStore:
         now: datetime,
         reason: str,
     ) -> tuple[list[str], str] | None:
+        visible_stream = self._visible_live_stream_for_runtime(stream)
+        if self._live_stream_has_reached_schedule_end(visible_stream, now=now):
+            end_message = "Luồng live đã kết thúc theo lịch."
+            if self._is_visible_live_stream(stream):
+                return self._mark_visible_live_stream_ended(stream, now=now, message=end_message)
+
+            self._finalize_live_stream_ended_state(stream, now=now, message=end_message)
+            parent_stream = self._parent_live_stream_optional(stream)
+            if (
+                parent_stream is not None
+                and str(parent_stream.status or "").strip().lower() not in {"stopped", "ended", "error"}
+            ):
+                if self._live_stream_has_runtime_claim(parent_stream):
+                    self._request_live_stream_stop(parent_stream, now=now, message=end_message)
+                else:
+                    return self._mark_visible_live_stream_ended(parent_stream, now=now, message=end_message)
+            return None
+
         should_notify_disconnect = self._should_notify_live_disconnect(stream, now=now)
         if self._is_runtime_backup_clone(stream):
             stream.status = "error"

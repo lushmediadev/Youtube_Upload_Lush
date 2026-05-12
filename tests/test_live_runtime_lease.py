@@ -9,6 +9,10 @@ from backend.app.store import AppStore
 
 
 class TestableStore(AppStore):
+    def __init__(self) -> None:
+        self.live_notifications: list[tuple[list[str], str]] = []
+        super().__init__()
+
     def _ensure_state_db(self) -> None:
         return None
 
@@ -29,6 +33,10 @@ class TestableStore(AppStore):
 
     def _save_state(self) -> None:
         return None
+
+    def _notify_live_telegram_chat_ids(self, chat_ids: list[str], message: str) -> bool:
+        self.live_notifications.append((chat_ids, message))
+        return True
 
 
 def make_live_worker(worker_id: str) -> WorkerRecord:
@@ -55,6 +63,7 @@ def make_stream(
     status: str,
     lease_expires_at: datetime,
     first_streaming_started_at: datetime | None = None,
+    end_time_live: datetime | None = None,
 ) -> LiveStreamRecord:
     now = datetime(2026, 5, 11, 21, 0)
     return LiveStreamRecord(
@@ -69,6 +78,9 @@ def make_stream(
         stream_name="test live",
         stream_key="stream-key",
         video_url="https://example.com/video.mp4",
+        is_forever=end_time_live is None,
+        live_label="Live 24/7" if end_time_live is None else "Live 1h",
+        end_time_live=end_time_live,
         status=status,
         created_at=now,
         updated_at=now,
@@ -142,6 +154,32 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
                 now=datetime.now(),
             )
         )
+
+    def test_missing_heartbeat_after_scheduled_end_notifies_ended_not_disconnected(self) -> None:
+        end_time = datetime(2026, 5, 12, 9, 30)
+        reconcile_at = datetime(2026, 5, 12, 9, 31, 37)
+        self.store.live_streams = [
+            make_stream(
+                status="streaming",
+                lease_expires_at=datetime(2026, 5, 12, 9, 31),
+                first_streaming_started_at=datetime(2026, 5, 12, 9, 15, 9),
+                end_time_live=end_time,
+            )
+        ]
+
+        self.store._reconcile_live_streams_from_heartbeat(
+            self.store.live_workers[0],
+            active_stream_ids=[],
+            now=reconcile_at,
+        )
+
+        stream = self.store.live_streams[0]
+        self.assertEqual(stream.status, "ended")
+        self.assertEqual(stream.log_label, "Kết thúc")
+        self.assertIsNone(stream.claimed_by_worker_id)
+        self.assertEqual(len(self.store.live_notifications), 1)
+        self.assertIn("[LIVE] Luồng live đã kết thúc", self.store.live_notifications[0][1])
+        self.assertNotIn("mất kết nối", self.store.live_notifications[0][1].casefold())
 
 
 if __name__ == "__main__":

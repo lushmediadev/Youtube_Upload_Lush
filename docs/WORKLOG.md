@@ -1,6 +1,8 @@
 ﻿# Worklog
 
 ### 2026-05-12
+- [x] Tạm tắt live normalize theo yêu cầu vận hành: default/source env chuyển sang `WORKER_LIVE_NORMALIZE_ENABLED=false`, còn toàn bộ profile `1080p/1440p/2160p` vẫn giữ nguyên để bật lại bằng env khi cần.
+- [x] Thêm regression test xác nhận worker live mới không tự bật normalize nếu không set env.
 - [x] Updated live normalize policy so `2160p/4K` sources keep original resolution instead of downscaling to `1440p`.
 - [x] Added a `2160p` bitrate/CRF profile: `maxrate=20000 kbps`, `bufsize=40000 kbps` through the existing `maxrate * 2` rule, `CRF=21`, `preset=veryfast`, audio AAC `128 kbps`.
 - [x] Kept GOP/keyframe cadence at 2 seconds (`-g` and `-keyint_min` computed from source FPS, `-sc_threshold 0`) to match YouTube ingest expectations.

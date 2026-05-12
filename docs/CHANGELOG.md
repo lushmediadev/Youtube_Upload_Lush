@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+### 2026-05-12 10:00 - Temporarily disable live normalize
+- Changed: Live normalize is now disabled by default through `WORKER_LIVE_NORMALIZE_ENABLED=false`; bitrate/resolution inspection remains in code but is skipped unless the env is explicitly enabled again.
+- Kept: The existing `2160p` profile variables remain available for later re-enable: `WORKER_LIVE_NORMALIZE_MAX_HEIGHT=2160`, `WORKER_LIVE_NORMALIZE_2160_MAXRATE_KBPS=20000`, `WORKER_LIVE_NORMALIZE_2160_CRF=21`.
+- Affected files: `workers/agent/config.py`, `backend/app/worker_bootstrap.py`, `scripts/bootstrap_worker.sh`, `.env.example`, `.env.production.example`, `tests/test_live_normalize_policy.py`, `docs/DECISIONS.md`, `docs/DECISIONS_INDEX.md`, `docs/WORKLOG.md`, `docs/CHANGELOG.md`
+- Impact/Risk: Low for live startup latency; source media will go directly to `prepare(copy) -> wait -> stream(copy)` without bitrate normalization until the env toggle is re-enabled.
+
 ### 2026-05-12 00:00 - Live normalize 4K profile
 - Changed: Live normalize now preserves `2160p/4K` sources instead of downscaling them to `1440p`.
 - Added: New `2160p` normalize profile with `WORKER_LIVE_NORMALIZE_2160_MAXRATE_KBPS=20000`, `WORKER_LIVE_NORMALIZE_2160_CRF=21`, and default `WORKER_LIVE_NORMALIZE_MAX_HEIGHT=2160`.

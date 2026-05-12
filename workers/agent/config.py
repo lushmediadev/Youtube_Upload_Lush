@@ -101,7 +101,7 @@ def load_config() -> WorkerConfig:
         browser_vnc_port_base=int(os.getenv("BROWSER_SESSION_VNC_PORT_BASE", "5990")),
         browser_web_port_base=int(os.getenv("BROWSER_SESSION_WEB_PORT_BASE", "6090")),
         browser_debug_port_base=int(os.getenv("BROWSER_SESSION_DEBUG_PORT_BASE", "9222")),
-        live_normalize_enabled=os.getenv("WORKER_LIVE_NORMALIZE_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"},
+        live_normalize_enabled=os.getenv("WORKER_LIVE_NORMALIZE_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"},
         live_normalize_concurrency=max(1, int(os.getenv("WORKER_LIVE_NORMALIZE_CONCURRENCY", "1"))),
         live_normalize_threads=max(1, int(os.getenv("WORKER_LIVE_NORMALIZE_THREADS", "2"))),
         live_normalize_preset=os.getenv("WORKER_LIVE_NORMALIZE_PRESET", "veryfast").strip() or "veryfast",

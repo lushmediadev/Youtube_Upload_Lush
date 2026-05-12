@@ -1,15 +1,17 @@
+import os
 import tempfile
 import sys
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 if "gdown" not in sys.modules:
     gdown = types.ModuleType("gdown")
     gdown.download = lambda *args, **kwargs: None
     sys.modules["gdown"] = gdown
 
-from workers.agent.config import WorkerConfig
+from workers.agent.config import WorkerConfig, load_config
 from workers.agent.ffmpeg_pipeline import MediaInfo
 from workers.agent.live_runner import _resolve_live_video_normalize_plan
 
@@ -85,6 +87,22 @@ def media_info(
 
 
 class LiveNormalizePolicyTests(unittest.TestCase):
+    def test_live_normalize_is_disabled_by_default_until_reenabled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                os.environ,
+                {
+                    "CONTROL_PLANE_URL": "https://control.example",
+                    "WORKER_SHARED_SECRET": "secret",
+                    "WORKER_RUNTIME_MODE": "live",
+                    "WORKER_DATA_DIR": temp_dir,
+                },
+                clear=True,
+            ):
+                config = load_config()
+
+        self.assertFalse(config.live_normalize_enabled)
+
     def test_4k_source_uses_2160_profile_without_downscale(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             plan = _resolve_live_video_normalize_plan(

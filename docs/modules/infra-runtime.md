@@ -29,6 +29,7 @@
 
 ## Invariants
 - Infra khong chua business logic.
+- Repo nay chi deploy production control-plane vao `109.123.227.253`; `82.197.71.6` la host lich su/stale va khong duoc dung lam deploy target moi.
 - Runtime artifact (`.env`, `.venv`, data, backups`) phai tach khoi source checkout.
 - Production deploy uu tien `git-first checkout` + runtime symlink, khong tro lai copy tay source vo tinh.
 - `scripts/bootstrap_host.sh` la canonical host deploy entrypoint cho mode `systemd`: script phai render unit theo `APP_DIR + SERVICE_PORT + SYSTEMD_SERVICE_NAME` va restart dung service sau moi lan sync code.

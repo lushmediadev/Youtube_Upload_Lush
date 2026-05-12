@@ -89,6 +89,7 @@
 ## Safety Rules
 
 - Khong doi contract lon cua backend/worker neu chua cap nhat `docs/DECISIONS.md`.
+- Production control-plane hien hanh cua repo nay la `109.123.227.253` (`vmi3263494`, `ytb.lushmedia.net`). Khong deploy repo nay len `82.197.71.6`; moi reference toi `82.197.71.6` trong docs/WORKLOG/CHANGELOG/PROJECT_CONTEXT chi la lich su cu/stale.
 - Khong dung memory file de thay cho viec doc code lien quan.
 - Khong dung `code-graph` hoac graph query lam canonical source thay cho code, config va memory chuan; graph chi la lop retrieval.
 - Khong duplicate cung mot thong tin o nhieu file memory neu mot canonical source la du.

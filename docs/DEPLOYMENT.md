@@ -4,6 +4,16 @@
 - `origin/main` la source of truth duy nhat cho code chay tren local va VPS.
 - Khong sua source truc tiep tren VPS neu khong phai hotfix khan cap. Neu co hotfix tren VPS, phai backport len git ngay sau do.
 
+## Current Production Target
+- Control-plane hien hanh: `109.123.227.253` (`vmi3263494`), public app `ytb.lushmedia.net`.
+- Repo checkout tren host: `/opt/youtube-upload-lush`.
+- Runtime dir tren host: `/opt/youtube-upload-lush-runtime`.
+- Runtime env tren host phai giu:
+  - `WORKER_BOOTSTRAP_CONTROL_PLANE_URL=http://109.123.227.253:8000`
+  - `WORKER_BOOTSTRAP_REPO_URL=https://github.com/lushmediadev/Youtube_Upload_Lush.git`
+  - `WORKER_BOOTSTRAP_BRANCH=main`
+- Khong deploy repo nay len `82.197.71.6`. Host `82.197.71.6` chi xuat hien trong log lich su cu va khong phai target cua `ytb.lushmedia.net`.
+
 ## Runtime Layout Tren VPS
 - Repo checkout: `/opt/youtube-upload-lush`
 - Runtime control-plane: `/opt/youtube-upload-lush-runtime`

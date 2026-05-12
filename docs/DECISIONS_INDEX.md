@@ -52,6 +52,7 @@
 
 | DEC-046 | BOT live/backup phai co `live_role` mac dinh tren chinh `WorkerRecord`; assignment `user + BOT` chi la quota/scope va khong duoc la noi duy nhat luu chuc nang BOT | Active | live admin assignment + bot metadata | High |
 | DEC-047 | YouTube live ingest mac dinh dung RTMPS; worker rewrite cac URL YouTube RTMP legacy sang RTMPS khi tao ffmpeg target | Active | live runtime + worker bootstrap | High |
+| DEC-048 | Production deploy target cua repo nay la `109.123.227.253`; `82.197.71.6` chi la host lich su/stale va khong duoc dung cho rollout moi | Active | infra deploy + ops safety | High |
 
 ## Notes
 - `docs/DECISIONS.md` van giu full history va ly do chi tiet.

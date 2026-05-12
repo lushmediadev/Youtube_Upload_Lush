@@ -18,6 +18,7 @@
 - `infra/docker`, `infra/caddy`, `infra/systemd`: runtime packaging va deploy surface.
 
 ## Global Invariants
+- Production control-plane hien hanh cua repo nay la `109.123.227.253` (`vmi3263494`, public app `ytb.lushmedia.net`). `82.197.71.6` la host lich su/khong con la deploy target cho repo nay.
 - Visual source of truth cho UI la `final_user_ui.html`; `docs/UI_SYSTEM.md` mo ta design system hien tai.
 - Worker la outbound-only agent: `register + heartbeat + claim + progress + complete/fail`.
 - Browser session/onboarding va upload browser phai chay tren worker/VPS duoc gan, khong chay tren control plane.

@@ -181,6 +181,46 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.assertIn("[LIVE] Luồng live đã kết thúc", self.store.live_notifications[0][1])
         self.assertNotIn("mất kết nối", self.store.live_notifications[0][1].casefold())
 
+    def test_editing_prestream_live_can_be_claimed_again_without_stop_request(self) -> None:
+        for status in ("downloading", "waiting"):
+            with self.subTest(status=status):
+                self.setUp()
+                scheduled_start = datetime.now() + timedelta(hours=1)
+                stream = make_stream(
+                    status=status,
+                    lease_expires_at=datetime.now() + timedelta(minutes=10),
+                )
+                stream.start_time_live = scheduled_start
+                stream.is_forever = True
+                stream.end_time_live = None
+                self.store.live_streams = [stream]
+
+                updated = self.store.update_live_stream(
+                    stream_id=stream.id,
+                    stream_name="edited live",
+                    primary_worker_id="live-worker-01",
+                    stream_key="edited-key",
+                    video_url="https://example.com/edited.mp4",
+                    is_forever=True,
+                    start_time_live=scheduled_start,
+                )
+
+                self.assertEqual(updated.status, "scheduled")
+                self.assertIsNone(updated.claimed_by_worker_id)
+
+                _, claimed = self.store.claim_next_live_stream(
+                    "live-worker-01",
+                    self.store.get_worker_shared_secret(),
+                )
+                self.assertIsNotNone(claimed)
+                self.assertIsNone(claimed.stop_requested_at)
+                state = self.store.get_live_stream_runtime_state(
+                    stream_id=stream.id,
+                    worker_id="live-worker-01",
+                    shared_secret=self.store.get_worker_shared_secret(),
+                )
+                self.assertFalse(state["should_stop"])
+
 
 if __name__ == "__main__":
     unittest.main()

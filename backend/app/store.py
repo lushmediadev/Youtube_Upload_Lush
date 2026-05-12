@@ -6280,6 +6280,12 @@ class AppStore:
             stream.claimed_by_role = stream.runtime_role or "primary"
             stream.claimed_at = now
             stream.lease_expires_at = now + timedelta(seconds=self._live_stream_lease_seconds(stream))
+            if (
+                stream.stop_requested_at is not None
+                and str(stream.status or "").strip().lower() in self._live_pre_stream_statuses()
+                and not self._has_live_stream_started(stream)
+            ):
+                stream.stop_requested_at = None
             stream.updated_at = now
             self._sync_live_worker_runtime_status(worker)
             self._save_state()

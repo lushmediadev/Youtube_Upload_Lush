@@ -181,8 +181,8 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.assertIn("[LIVE] Luồng live đã kết thúc", self.store.live_notifications[0][1])
         self.assertNotIn("mất kết nối", self.store.live_notifications[0][1].casefold())
 
-    def test_editing_prestream_live_can_be_claimed_again_without_stop_request(self) -> None:
-        for status in ("downloading", "waiting"):
+    def test_editing_prestream_live_waits_for_old_runtime_to_exit_before_reclaim(self) -> None:
+        for status in ("downloading", "preparing", "waiting"):
             with self.subTest(status=status):
                 self.setUp()
                 scheduled_start = datetime.now() + timedelta(hours=1)
@@ -207,6 +207,65 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
 
                 self.assertEqual(updated.status, "scheduled")
                 self.assertIsNone(updated.claimed_by_worker_id)
+
+                with self.assertRaises(ValueError):
+                    self.store.update_live_stream_progress(
+                        stream_id=stream.id,
+                        worker_id="live-worker-01",
+                        shared_secret=self.store.get_worker_shared_secret(),
+                        status="waiting",
+                        progress=100,
+                        message="old runtime should not update after edit",
+                    )
+
+                _, claimed = self.store.claim_next_live_stream(
+                    "live-worker-01",
+                    self.store.get_worker_shared_secret(),
+                )
+                self.assertIsNone(claimed)
+
+                self.store.heartbeat_live_worker(
+                    type(
+                        "Payload",
+                        (),
+                        {
+                            "worker_id": "live-worker-01",
+                            "shared_secret": self.store.get_worker_shared_secret(),
+                            "status": "busy",
+                            "load_percent": 0,
+                            "ram_percent": 0,
+                            "ram_used_gb": 0.0,
+                            "ram_total_gb": 0.0,
+                            "bandwidth_kbps": 0.0,
+                            "disk_used_gb": 0.0,
+                            "disk_total_gb": 100.0,
+                            "capacity": 1,
+                            "active_stream_ids": [stream.id],
+                        },
+                    )()
+                )
+                self.assertIsNotNone(self.store.live_streams[0].stop_requested_at)
+
+                self.store.heartbeat_live_worker(
+                    type(
+                        "Payload",
+                        (),
+                        {
+                            "worker_id": "live-worker-01",
+                            "shared_secret": self.store.get_worker_shared_secret(),
+                            "status": "online",
+                            "load_percent": 0,
+                            "ram_percent": 0,
+                            "ram_used_gb": 0.0,
+                            "ram_total_gb": 0.0,
+                            "bandwidth_kbps": 0.0,
+                            "disk_used_gb": 0.0,
+                            "disk_total_gb": 100.0,
+                            "capacity": 1,
+                            "active_stream_ids": [],
+                        },
+                    )()
+                )
 
                 _, claimed = self.store.claim_next_live_stream(
                     "live-worker-01",

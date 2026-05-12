@@ -5723,6 +5723,12 @@ class AppStore:
         normalized_status = str(stream.status or "").strip().lower() or "scheduled"
         if normalized_status not in self._live_worker_claimable_statuses():
             return False
+        if (
+            stream.stop_requested_at is not None
+            and normalized_status in self._live_pre_stream_statuses()
+            and not self._has_live_stream_started(stream)
+        ):
+            return False
         visible_stream = self._visible_live_stream_for_runtime(stream)
         if self._live_stream_has_reached_schedule_end(visible_stream, now=now):
             return False
@@ -6025,6 +6031,27 @@ class AppStore:
             if notification_payload is not None:
                 self._notify_live_telegram_chat_ids(notification_payload[0], notification_payload[1])
 
+    def _release_completed_prestream_restart_requests(
+        self,
+        worker: WorkerRecord,
+        *,
+        active_stream_ids: list[str],
+        now: datetime,
+    ) -> None:
+        active_stream_id_set = {str(stream_id).strip() for stream_id in active_stream_ids if str(stream_id).strip()}
+        for stream in self.live_streams:
+            if str(stream.primary_worker_id or "").strip() != worker.id:
+                continue
+            normalized_status = str(stream.status or "").strip().lower() or "scheduled"
+            if normalized_status not in self._live_pre_stream_statuses():
+                continue
+            if stream.stop_requested_at is None or self._has_live_stream_started(stream):
+                continue
+            if stream.id in active_stream_id_set:
+                continue
+            stream.stop_requested_at = None
+            stream.updated_at = now
+
     def register_live_worker(self, payload: LiveWorkerRegisterPayload) -> LiveWorkerControlResponse:
         completed_task: dict[str, Any] | None = None
         worker_snapshot: WorkerRecord | None = None
@@ -6224,6 +6251,11 @@ class AppStore:
                 active_stream_ids=payload.active_stream_ids or [],
                 now=now,
             )
+            self._release_completed_prestream_restart_requests(
+                worker,
+                active_stream_ids=payload.active_stream_ids or [],
+                now=now,
+            )
             self._sync_live_backup_policy(now=now)
             if self._count_live_worker_running_streams(worker) > 0:
                 worker.status = "busy"
@@ -6280,12 +6312,6 @@ class AppStore:
             stream.claimed_by_role = stream.runtime_role or "primary"
             stream.claimed_at = now
             stream.lease_expires_at = now + timedelta(seconds=self._live_stream_lease_seconds(stream))
-            if (
-                stream.stop_requested_at is not None
-                and str(stream.status or "").strip().lower() in self._live_pre_stream_statuses()
-                and not self._has_live_stream_started(stream)
-            ):
-                stream.stop_requested_at = None
             stream.updated_at = now
             self._sync_live_worker_runtime_status(worker)
             self._save_state()

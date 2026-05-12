@@ -9,6 +9,10 @@ from backend.app.store import AppStore
 
 
 class LocalStore(AppStore):
+    def __init__(self) -> None:
+        self.sent_alerts: list[tuple[str | None, str]] = []
+        super().__init__()
+
     def _ensure_state_db(self) -> None:
         return None
 
@@ -29,6 +33,10 @@ class LocalStore(AppStore):
 
     def _save_state(self) -> None:
         return None
+
+    def _send_telegram_alert(self, message: str, *, chat_id: str | None = None) -> bool:
+        self.sent_alerts.append((chat_id, message))
+        return True
 
 
 def make_worker(worker_id: str = "worker-eu") -> WorkerRecord:
@@ -107,6 +115,76 @@ class BotLocalTests(unittest.TestCase):
         self.assertEqual(rows[0]["bot_function_key"], "backup")
         self.assertEqual(rows[0]["bot_type_label"], "Backup")
         self.assertEqual(rows[0]["assigned_live_role"], "backup")
+
+    def test_live_bot_role_change_notifies_admin_and_owner_manager(self) -> None:
+        self.store.users = [
+            UserSummary(id="admin-1", username="admin", display_name="admin", role="admin"),
+            UserSummary(id="manager-1", username="manager", display_name="manager", role="manager"),
+        ]
+        self.store.user_meta = {
+            "admin-1": {"telegram": "100"},
+            "manager-1": {"telegram": "200"},
+        }
+        self.store.workers = []
+        self.store.live_workers = [
+            make_worker("live-worker-01").model_copy(
+                update={
+                    "name": "62.146.169.168",
+                    "live_role": "primary",
+                    "manager_id": "manager-1",
+                    "manager_name": "manager",
+                    "group": "workers",
+                }
+            )
+        ]
+
+        self.store.update_bot(
+            "live-worker-01",
+            "62.146.169.168",
+            "US-west",
+            "workers",
+            "manager-1",
+            workspace_mode="live",
+            live_role="backup",
+            threads=5,
+            assigned_user_ids=[],
+            viewer_role="admin",
+            viewer_id="admin-1",
+            updated_by="admin",
+        )
+
+        self.assertEqual([chat_id for chat_id, _ in self.store.sent_alerts], ["100", "200"])
+        message = self.store.sent_alerts[0][1]
+        self.assertIn("[BOT] Cập nhật BOT thành công", message)
+        self.assertIn("Chuyển loại: BOT live chính -> BOT backup", message)
+        self.assertIn("BOT ID: live-worker-01", message)
+
+    def test_live_bot_role_noop_does_not_notify(self) -> None:
+        self.store.users = [
+            UserSummary(id="admin-1", username="admin", display_name="admin", role="admin"),
+        ]
+        self.store.user_meta = {"admin-1": {"telegram": "100"}}
+        self.store.workers = []
+        self.store.live_workers = [
+            make_worker("live-worker-01").model_copy(update={"live_role": "backup"})
+        ]
+
+        self.store.update_bot(
+            "live-worker-01",
+            "62.146.169.168",
+            "US-west",
+            "workers",
+            None,
+            workspace_mode="live",
+            live_role="backup",
+            threads=5,
+            assigned_user_ids=[],
+            viewer_role="admin",
+            viewer_id="admin-1",
+            updated_by="admin",
+        )
+
+        self.assertEqual(self.store.sent_alerts, [])
 
     def test_pending_live_conversion_without_users_persists_backup_role(self) -> None:
         self.store.workers = []

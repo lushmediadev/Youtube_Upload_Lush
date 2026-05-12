@@ -2911,6 +2911,28 @@ class AppStore:
             f"Manager trước khi xóa: {manager_name}"
         )
 
+    def _bot_live_role_change_message(
+        self,
+        task: dict[str, Any],
+        *,
+        worker_name: str,
+        worker_id: str,
+        vps_ip: str,
+        previous_role: str,
+        next_role: str,
+    ) -> str:
+        actor_label = self._bot_operation_actor_label(task.get("requested_role"), task.get("requested_by"))
+        manager_name = str(task.get("manager_name") or "").strip() or "system"
+        return (
+            "[BOT] Cập nhật BOT thành công\n"
+            f"Người thao tác: {actor_label}\n"
+            f"BOT: {worker_name}\n"
+            f"VPS: {vps_ip}\n"
+            f"Chuyển loại: {self._live_assignment_role_label(previous_role)} -> {self._live_assignment_role_label(next_role)}\n"
+            f"BOT ID: {worker_id}\n"
+            f"Manager sở hữu: {manager_name}"
+        )
+
     def _user_telegram_chat_id(self, user_id: str) -> str:
         meta = self._user_meta_record(user_id)
         try:
@@ -12418,8 +12440,10 @@ class AppStore:
         confirm_manager_transfer_cleanup: bool = False,
         viewer_role: str = "admin",
         viewer_id: str | None = None,
+        updated_by: str = "admin",
     ) -> None:
         worker = self._find_live_worker(worker_id)
+        current_effective_live_role = self._live_worker_assigned_role(worker.id) or "primary"
         normalized_name = str(name or "").strip()
         if not normalized_name:
             raise ValueError("Tên BOT là bắt buộc.")
@@ -12643,6 +12667,29 @@ class AppStore:
         if password_changed:
             self.update_worker_connection_password(worker.id, normalized_password, workspace_mode="live")
         self._save_state()
+        if normalized_live_role and current_effective_live_role != normalized_live_role:
+            connection_profile = dict(self.worker_connection_profiles.get(worker.id) or {})
+            vps_ip = str(connection_profile.get("vps_ip") or "").strip()
+            worker_name = self._resolve_live_worker_display_name(worker.id)
+            if not vps_ip:
+                vps_ip = worker_name
+            task = {
+                "manager_id": str(worker.manager_id or "").strip() or None,
+                "manager_name": str(worker.manager_name or "").strip() or "system",
+                "requested_by": str(updated_by or "").strip() or "system",
+                "requested_role": str(viewer_role or "").strip() or "system",
+            }
+            self._notify_telegram_chat_ids(
+                self._bot_operation_recipient_chat_ids(task),
+                self._bot_live_role_change_message(
+                    task,
+                    worker_name=worker_name,
+                    worker_id=worker.id,
+                    vps_ip=vps_ip,
+                    previous_role=current_effective_live_role,
+                    next_role=normalized_live_role,
+                ),
+            )
 
     def _delete_live_bot_state(self, worker_id: str) -> None:
         self._find_live_worker(worker_id)
@@ -12775,6 +12822,7 @@ class AppStore:
                 confirm_manager_transfer_cleanup=confirm_manager_transfer_cleanup,
                 viewer_role=viewer_role,
                 viewer_id=viewer_id,
+                updated_by=updated_by,
             )
             return
         worker = self._find_worker(worker_id)

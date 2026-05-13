@@ -33,6 +33,28 @@ apt_get_retry() {
 
 APT_METADATA_READY=0
 
+disable_unattended_apt_upgrades() {
+  echo "[apt-auto-upgrade] Disabling unattended apt upgrades for worker stability."
+  mkdir -p /etc/apt/apt.conf.d
+  cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+APT::Periodic::Update-Package-Lists "0";
+APT::Periodic::Unattended-Upgrade "0";
+EOF
+  cat >/etc/apt/apt.conf.d/99disable-auto-upgrades <<'EOF'
+APT::Periodic::Enable "0";
+APT::Periodic::Update-Package-Lists "0";
+APT::Periodic::Download-Upgradeable-Packages "0";
+APT::Periodic::Unattended-Upgrade "0";
+APT::Periodic::AutocleanInterval "0";
+EOF
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl disable --now apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1 || true
+    systemctl disable --now unattended-upgrades.service >/dev/null 2>&1 || true
+    systemctl mask apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service >/dev/null 2>&1 || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
+  fi
+}
+
 ensure_apt_metadata() {
   local force_refresh="${1:-0}"
   if [ "$force_refresh" != "1" ] && [ "$APT_METADATA_READY" -eq 1 ]; then
@@ -76,6 +98,7 @@ remove_packages_if_installed() {
   apt_get_retry remove -y "${installed_packages[@]}"
 }
 
+disable_unattended_apt_upgrades
 mkdir -p "$RUNTIME_DIR"
 install_packages_if_missing ffmpeg git python3 python3-venv python3-pip
 mkdir -p "$RUNTIME_DIR/.backup" "$RUNTIME_DIR/worker-data"

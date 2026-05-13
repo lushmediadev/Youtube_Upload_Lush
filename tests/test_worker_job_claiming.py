@@ -9,6 +9,10 @@ from backend.app.store import AppStore
 
 
 class TestableStore(AppStore):
+    def __init__(self) -> None:
+        self.save_calls = 0
+        super().__init__()
+
     def _ensure_state_db(self) -> None:
         return None
 
@@ -28,7 +32,7 @@ class TestableStore(AppStore):
         return None
 
     def _save_state(self) -> None:
-        return None
+        self.save_calls += 1
 
 
 def make_worker() -> WorkerRecord:
@@ -89,6 +93,7 @@ def make_job(
 class WorkerJobClaimingTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store = TestableStore()
+        self.store.save_calls = 0
         self.store.workers = [make_worker()]
         self.store.users = [
             UserSummary(id="user-hoangmai", username="hoangmai", display_name="hoangmai", role="user"),
@@ -228,6 +233,45 @@ class WorkerJobClaimingTests(unittest.TestCase):
         positions = self.store._upload_claim_position_by_job_id(now=datetime(2026, 5, 8, 15, 10))
 
         self.assertEqual(positions, {"job-vd5": 1, "job-vd6": 2})
+
+    def test_noop_upload_claim_does_not_persist_state(self) -> None:
+        _worker, claimed = self.store.claim_next_job("worker-11", self.store.get_worker_shared_secret())
+
+        self.assertIsNone(claimed)
+        self.assertEqual(self.store.save_calls, 0)
+
+    def test_upload_worker_heartbeat_throttles_state_persistence(self) -> None:
+        payload = type(
+            "Payload",
+            (),
+            {
+                "worker_id": "worker-11",
+                "shared_secret": self.store.get_worker_shared_secret(),
+                "status": "online",
+                "load_percent": 1,
+                "ram_percent": 2,
+                "ram_used_gb": 0.1,
+                "ram_total_gb": 1.0,
+                "bandwidth_kbps": 3.0,
+                "disk_used_gb": 4.0,
+                "disk_total_gb": 100.0,
+                "threads": 1,
+                "active_job_ids": [],
+                "public_base_url": None,
+                "browser_session_enabled": None,
+                "browser_display_base": None,
+                "browser_vnc_port_base": None,
+                "browser_web_port_base": None,
+                "browser_debug_port_base": None,
+            },
+        )()
+
+        self.store.heartbeat_worker(payload)
+        payload.load_percent = 5
+        self.store.heartbeat_worker(payload)
+
+        self.assertEqual(self.store.workers[0].load_percent, 5)
+        self.assertEqual(self.store.save_calls, 1)
 
 
 if __name__ == "__main__":

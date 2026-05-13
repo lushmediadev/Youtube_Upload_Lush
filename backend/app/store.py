@@ -411,6 +411,7 @@ class AppStore:
         self.admin_notifications: list[dict[str, Any]] = []
         self._live_progress_last_saved_at: dict[str, datetime] = {}
         self._live_worker_heartbeat_last_saved_at: dict[str, datetime] = {}
+        self._worker_heartbeat_last_saved_at: dict[str, datetime] = {}
         self._worker_state_lock = RLock()
         self._monitor_stop_event = Event()
         self._monitor_thread: Thread | None = None
@@ -5199,6 +5200,7 @@ class AppStore:
         with self._worker_state_lock:
             worker = self._authenticate_worker(payload.worker_id, payload.shared_secret)
             now = self._now(trim=False)
+            previous_status = str(worker.status or "").strip().lower()
             reconnect_notification = self._worker_reconnect_notification(worker, now=now, live=False)
             worker.load_percent = payload.load_percent
             worker.ram_percent = payload.ram_percent
@@ -5223,27 +5225,33 @@ class AppStore:
                 worker.browser_web_port_base = payload.browser_web_port_base
             if payload.browser_debug_port_base is not None:
                 worker.browser_debug_port_base = payload.browser_debug_port_base
+            job_state_changed = False
             if payload.active_job_ids is None:
-                upload_interruption_notifications.extend(
-                    self._reconcile_worker_jobs_from_heartbeat(
-                        worker,
-                        active_job_ids=[],
-                        now=now,
-                    )
+                job_state_changed, upload_interruption_notifications = self._reconcile_worker_jobs_from_heartbeat(
+                    worker,
+                    active_job_ids=[],
+                    now=now,
                 )
             else:
-                upload_interruption_notifications.extend(
-                    self._reconcile_worker_jobs_from_heartbeat(
-                        worker,
-                        active_job_ids=payload.active_job_ids,
-                        now=now,
-                    )
+                job_state_changed, upload_interruption_notifications = self._reconcile_worker_jobs_from_heartbeat(
+                    worker,
+                    active_job_ids=payload.active_job_ids,
+                    now=now,
                 )
             if self._count_worker_running_jobs(worker) > 0:
                 worker.status = "busy"
             else:
                 worker.status = payload.status
-            self._save_state()
+            should_save_state = self._should_persist_worker_heartbeat(
+                worker,
+                previous_status=previous_status,
+                now=now,
+                job_state_changed=job_state_changed,
+                force=reconnect_notification is not None,
+            )
+            if should_save_state:
+                self._save_state()
+                self._worker_heartbeat_last_saved_at[worker.id] = now
             snapshot = deepcopy(worker)
         if reconnect_notification is not None:
             self._notify_telegram_chat_ids(reconnect_notification[0], reconnect_notification[1])
@@ -5258,8 +5266,11 @@ class AppStore:
             max_threads = self._effective_worker_thread_limit(worker)
             active_jobs = self._count_worker_running_jobs(worker)
             if active_jobs >= max_threads:
+                previous_status = str(worker.status or "").strip().lower()
                 self._sync_worker_runtime_status(worker)
-                self._save_state()
+                if previous_status != str(worker.status or "").strip().lower():
+                    self._save_state()
+                    self._worker_heartbeat_last_saved_at[worker.id] = now
                 return deepcopy(worker), None
 
             candidates = [
@@ -5272,14 +5283,20 @@ class AppStore:
             ]
 
             if not candidates:
+                previous_status = str(worker.status or "").strip().lower()
                 self._sync_worker_runtime_status(worker)
-                self._save_state()
+                if previous_status != str(worker.status or "").strip().lower():
+                    self._save_state()
+                    self._worker_heartbeat_last_saved_at[worker.id] = now
                 return deepcopy(worker), None
 
             job, owner_key = self._pick_worker_round_robin_job(worker, candidates)
             if job is None:
+                previous_status = str(worker.status or "").strip().lower()
                 self._sync_worker_runtime_status(worker)
-                self._save_state()
+                if previous_status != str(worker.status or "").strip().lower():
+                    self._save_state()
+                    self._worker_heartbeat_last_saved_at[worker.id] = now
                 return deepcopy(worker), None
             job.status = "queueing"
             job.claimed_by_worker_id = worker_id
@@ -5498,6 +5515,14 @@ class AppStore:
     @staticmethod
     def _live_worker_heartbeat_save_interval_seconds() -> int:
         raw_value = str(os.getenv("LIVE_WORKER_HEARTBEAT_SAVE_INTERVAL_SECONDS", "30")).strip()
+        try:
+            return max(5, int(raw_value))
+        except ValueError:
+            return 30
+
+    @staticmethod
+    def _worker_heartbeat_save_interval_seconds() -> int:
+        raw_value = str(os.getenv("WORKER_HEARTBEAT_SAVE_INTERVAL_SECONDS", "30")).strip()
         try:
             return max(5, int(raw_value))
         except ValueError:
@@ -6709,6 +6734,25 @@ class AppStore:
         if last_saved_at is None:
             return True
         return last_saved_at + timedelta(seconds=self._live_worker_heartbeat_save_interval_seconds()) <= now
+
+    def _should_persist_worker_heartbeat(
+        self,
+        worker: WorkerRecord,
+        *,
+        previous_status: str,
+        now: datetime,
+        job_state_changed: bool,
+        force: bool = False,
+    ) -> bool:
+        if force or job_state_changed:
+            return True
+        current_status = str(worker.status or "").strip().lower()
+        if previous_status != current_status:
+            return True
+        last_saved_at = self._worker_heartbeat_last_saved_at.get(worker.id)
+        if last_saved_at is None:
+            return True
+        return last_saved_at + timedelta(seconds=self._worker_heartbeat_save_interval_seconds()) <= now
 
     def update_live_stream_progress(
         self,
@@ -8742,7 +8786,8 @@ class AppStore:
         *,
         active_job_ids: list[str],
         now: datetime,
-    ) -> list[tuple[list[str], str]]:
+    ) -> tuple[bool, list[tuple[list[str], str]]]:
+        changed = False
         notifications: list[tuple[list[str], str]] = []
         active_job_id_set = {str(job_id).strip() for job_id in active_job_ids if str(job_id).strip()}
         for job in self.jobs:
@@ -8760,8 +8805,10 @@ class AppStore:
             )
             if notification_payload is not None:
                 notifications.append(notification_payload)
-        self._refresh_queue_positions()
-        return notifications
+            changed = True
+        if changed:
+            self._refresh_queue_positions()
+        return changed, notifications
 
     def _job_username(self, job: RenderJobRecord) -> str:
         user_id = self._job_user_id(job)

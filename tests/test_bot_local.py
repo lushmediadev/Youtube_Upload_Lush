@@ -5,6 +5,7 @@ from datetime import datetime
 os.environ.setdefault("APP_ENABLE_LIVE_DEMO_SEED", "0")
 
 from backend.app.schemas import UserSummary, WorkerRecord
+from backend.app.schemas import LiveWorkerHeartbeatPayload
 from backend.app.store import AppStore
 
 
@@ -186,6 +187,34 @@ class BotLocalTests(unittest.TestCase):
             ),
             [6, 6],
         )
+
+    def test_live_worker_heartbeat_uses_threads_when_capacity_field_is_absent(self) -> None:
+        self.store.workers = []
+        self.store.live_workers = [make_worker("live-worker-01").model_copy(update={"capacity": 5, "threads": 5})]
+        self.store.live_user_worker_links = [
+            {
+                "id": 1,
+                "user_id": "user-1",
+                "worker_id": "live-worker-01",
+                "allocated_threads": 7,
+                "threads": 7,
+                "live_role": "primary",
+                "note": "primary",
+                "created_at": datetime(2026, 5, 11, 8, 0),
+            }
+        ]
+
+        response = self.store.heartbeat_live_worker(
+            LiveWorkerHeartbeatPayload(
+                worker_id="live-worker-01",
+                shared_secret=self.store.get_worker_shared_secret(),
+                threads=7,
+                active_stream_ids=[],
+            )
+        )
+
+        self.assertEqual(response.worker.capacity, 7)
+        self.assertEqual(response.worker.threads, 7)
 
     def test_live_bot_role_change_notifies_admin_and_owner_manager(self) -> None:
         self.store.users = [

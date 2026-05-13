@@ -6302,7 +6302,7 @@ class AppStore:
             normalized_capacity = self._normalize_live_worker_threads(
                 max(
                     int(worker.capacity or 0),
-                    int(payload.capacity or 0),
+                    int(getattr(payload, "capacity", 0) or payload.threads or 0),
                     granted_threads_total,
                     1,
                 )

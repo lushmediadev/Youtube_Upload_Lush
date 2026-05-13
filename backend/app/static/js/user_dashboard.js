@@ -27,6 +27,7 @@
   let browserSessionPollHandle = null;
   let activeStudioSession = null;
   let studioSessionPollHandle = null;
+  let studioSessionStateVersion = 0;
   const renderCopy = {
     openYoutube: "\u004d\u1edf YouTube",
     edit: "S\u1eeda",
@@ -2557,11 +2558,12 @@
 
     const activeStatuses = new Set(["launching", "awaiting_confirmation", "confirmed"]);
 
-    const stopStudioPolling = () => {
+    const stopStudioPolling = ({ invalidate = false } = {}) => {
       if (studioSessionPollHandle) {
         window.clearInterval(studioSessionPollHandle);
         studioSessionPollHandle = null;
       }
+      if (invalidate) studioSessionStateVersion += 1;
     };
 
     const getChannels = () => (Array.isArray(dashboardSeed.connected_channels) ? dashboardSeed.connected_channels : []);
@@ -2704,11 +2706,19 @@
     };
 
     const refreshStudioSession = async (silent = false) => {
-      if (!activeStudioSession?.session_id) return null;
+      const sessionId = String(activeStudioSession?.session_id || "").trim();
+      if (!sessionId || sessionId === "pending") return null;
+      const requestVersion = studioSessionStateVersion;
       try {
-        const response = await workspaceFetch(`/api/user/browser-sessions/${activeStudioSession.session_id}`);
+        const response = await workspaceFetch(`/api/user/browser-sessions/${sessionId}`);
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.detail || "Không thể tải phiên Studio.");
+        if (
+          requestVersion !== studioSessionStateVersion ||
+          String(activeStudioSession?.session_id || "").trim() !== sessionId
+        ) {
+          return null;
+        }
         renderStudioSession(payload);
         if (!activeStatuses.has(String(payload.status || ""))) stopStudioPolling();
         return payload;
@@ -2720,12 +2730,23 @@
 
     const startStudioPolling = () => {
       stopStudioPolling();
+      const sessionId = String(activeStudioSession?.session_id || "").trim();
+      const requestVersion = studioSessionStateVersion;
       studioSessionPollHandle = window.setInterval(() => {
+        if (
+          requestVersion !== studioSessionStateVersion ||
+          String(activeStudioSession?.session_id || "").trim() !== sessionId
+        ) {
+          stopStudioPolling();
+          return;
+        }
         void refreshStudioSession(true);
       }, 4000);
     };
 
     const createStudioSession = async (channelId) => {
+      stopStudioPolling({ invalidate: true });
+      const requestVersion = studioSessionStateVersion;
       renderStudioSession({
         session_id: "pending",
         status: "launching",
@@ -2738,28 +2759,32 @@
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.detail || "Không thể tạo phiên Studio.");
+        if (requestVersion !== studioSessionStateVersion) return;
         renderStudioSession(payload);
         startStudioPolling();
       } catch (error) {
+        if (requestVersion !== studioSessionStateVersion) return;
         renderStudioSession(null);
         showToast(error.message || "Không thể tạo phiên Studio.", "error");
       }
     };
 
     const closeStudioSession = async ({ ask = true } = {}) => {
-      if (!activeStudioSession?.session_id || activeStudioSession.session_id === "pending") {
+      const sessionId = String(activeStudioSession?.session_id || "").trim();
+      if (!sessionId || sessionId === "pending") {
+        stopStudioPolling({ invalidate: true });
         renderStudioSession(null);
         return;
       }
       if (ask && !window.confirm("Đóng phiên Studio này?")) return;
       closeSessionButton.disabled = true;
+      stopStudioPolling({ invalidate: true });
       try {
-        const response = await workspaceFetch(`/api/user/browser-sessions/${activeStudioSession.session_id}`, {
+        const response = await workspaceFetch(`/api/user/browser-sessions/${sessionId}`, {
           method: "DELETE",
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.detail || "Không thể đóng phiên Studio.");
-        stopStudioPolling();
         renderStudioSession(null);
       } catch (error) {
         showToast(error.message || "Không thể đóng phiên Studio.", "error");

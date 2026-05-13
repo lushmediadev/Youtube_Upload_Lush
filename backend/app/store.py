@@ -2036,7 +2036,13 @@ class AppStore:
             )
         return changed
 
-    def finalize_decommissioned_bot(self, worker_id: str, operation_id: str) -> None:
+    def finalize_decommissioned_bot(
+        self,
+        worker_id: str,
+        operation_id: str,
+        *,
+        reason_override: str | None = None,
+    ) -> None:
         completed_task: dict[str, Any] | None = None
         worker_name = ""
         vps_ip = ""
@@ -2059,7 +2065,7 @@ class AppStore:
                 worker_name=worker_name,
                 vps_ip=str(task.get("vps_ip") or "").strip() or None,
                 deleted_by=str(task.get("requested_by") or "").strip() or "system",
-                reason=str(task.get("transport") or "").strip() or "decommission",
+                reason=str(reason_override or task.get("transport") or "").strip() or "decommission",
             )
             if resolved_workspace_mode == "live":
                 self._delete_live_bot_state(worker_id)

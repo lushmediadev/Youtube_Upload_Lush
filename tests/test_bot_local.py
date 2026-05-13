@@ -1,12 +1,18 @@
 import os
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 os.environ.setdefault("APP_ENABLE_LIVE_DEMO_SEED", "0")
 
 from backend.app.schemas import UserSummary, WorkerRecord
 from backend.app.schemas import LiveWorkerHeartbeatPayload
 from backend.app.store import AppStore
+from backend.app.worker_bootstrap import (
+    WorkerBootstrapError,
+    WorkerDecommissionRequest,
+    _run_worker_decommission_operation,
+)
 
 
 class LocalStore(AppStore):
@@ -99,6 +105,69 @@ class BotLocalTests(unittest.TestCase):
                 "Trạng Thái": "Connect",
             },
         )
+
+    def test_finalize_decommissioned_bot_can_record_unreachable_ssh_delete(self) -> None:
+        self.store.worker_operation_tasks = [
+            {
+                "id": "worker-op-delete",
+                "worker_id": "worker-eu",
+                "worker_name": "109.123.233.131",
+                "vps_ip": "109.123.233.131",
+                "workspace_mode": "upload",
+                "kind": "decommission",
+                "transport": "ssh",
+                "status": "running",
+                "requested_by": "admin",
+                "requested_role": "admin",
+                "manager_name": "system",
+            }
+        ]
+        self.store.worker_connection_profiles = {
+            "worker-eu": {"vps_ip": "109.123.233.131", "ssh_user": "root", "password": "old-pass"}
+        }
+
+        self.store.finalize_decommissioned_bot(
+            "worker-eu",
+            "worker-op-delete",
+            reason_override="ssh_unreachable",
+        )
+
+        self.assertEqual(self.store.workers, [])
+        self.assertEqual(self.store.worker_operation_tasks, [])
+        self.assertNotIn("worker-eu", self.store.worker_connection_profiles)
+        self.assertEqual(self.store.deleted_workers["worker-eu"]["reason"], "ssh_unreachable")
+
+    def test_decommission_operation_deletes_local_record_when_vps_unreachable(self) -> None:
+        self.store.worker_operation_tasks = [
+            {
+                "id": "worker-op-delete",
+                "worker_id": "worker-eu",
+                "worker_name": "109.123.233.131",
+                "vps_ip": "109.123.233.131",
+                "workspace_mode": "upload",
+                "kind": "decommission",
+                "transport": "ssh",
+                "status": "running",
+                "requested_by": "admin",
+                "requested_role": "admin",
+                "manager_name": "system",
+            }
+        ]
+        self.store.worker_connection_profiles = {
+            "worker-eu": {"vps_ip": "109.123.233.131", "ssh_user": "root", "password": "old-pass"}
+        }
+        request = WorkerDecommissionRequest(vps_ip="109.123.233.131", ssh_user="root", password="old-pass")
+
+        with patch(
+            "backend.app.worker_bootstrap.decommission_worker_via_ssh",
+            side_effect=WorkerBootstrapError("Không kết nối được VPS 109.123.233.131: timed out"),
+        ):
+            _run_worker_decommission_operation(self.store, "worker-op-delete", "worker-eu", request)
+
+        self.assertEqual(self.store.workers, [])
+        self.assertEqual(self.store.worker_operation_tasks, [])
+        self.assertNotIn("worker-eu", self.store.worker_connection_profiles)
+        self.assertEqual(self.store.deleted_workers["worker-eu"]["reason"], "ssh_unreachable")
 
     def test_pending_install_placeholder_exposes_requested_local(self) -> None:
         row = self.store._build_operation_placeholder_row(

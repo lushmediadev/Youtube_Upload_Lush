@@ -1362,6 +1362,15 @@
                 </div>
                 {% endfor %}
               </div>
+              <div class="mt-5 border-t border-slate-200/80 pt-4">
+                <button id="studioAccessButton" type="button" class="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-brand-100 bg-brand-50 px-4 text-[12px] font-semibold text-brand-700 shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-200 hover:bg-brand-100 hover:shadow-md disabled:translate-y-0 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none">
+                  <i data-lucide="monitor-up" class="h-4 w-4"></i>
+                  <span>Truy c&#7853;p studio</span>
+                </button>
+                <p class="mt-2 text-[11px] leading-relaxed text-slate-500">
+                  M&#7903; noVNC b&#7857;ng Chrome profile &#273;&#227; l&#432;u &#273;&#7875; ki&#7875;m tra Studio ho&#7863;c x&#225;c minh Verify it&#39;s you.
+                </p>
+              </div>
             </div>
         </form>
 
@@ -1677,10 +1686,93 @@
       </div>
     </div>
   </div>
+
+  <div id="studioAccessModal" class="fixed inset-0 z-[70] hidden">
+    <div class="absolute inset-0 bg-slate-950/35"></div>
+    <div class="relative flex min-h-screen items-center justify-center px-4 py-8">
+      <div class="w-full max-w-[620px] rounded-2xl border border-slate-200 bg-white shadow-[0_18px_48px_rgba(15,23,42,0.18)]">
+        <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+          <div>
+            <p class="text-[15px] font-display font-semibold text-slate-900">Truy c&#7853;p YouTube Studio</p>
+            <p class="mt-2 text-[11px] font-semibold leading-relaxed text-rose-600">
+              Ch&#7885;n &#273;&#250;ng k&#234;nh c&#7847;n ki&#7875;m tra. Phi&#234;n noVNC t&#7921; h&#7871;t h&#7841;n sau 30 ph&#250;t &#273;&#7875; tr&#225;nh treo t&#224;i nguy&#234;n VPS.
+            </p>
+          </div>
+          <button id="closeStudioAccessModal" type="button" class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-900">
+            <i data-lucide="x" class="h-4 w-4"></i>
+          </button>
+        </div>
+
+        <div class="space-y-4 px-6 py-5">
+          <div id="studioAccessChannelStep" class="space-y-3">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <p class="text-[12px] font-semibold text-slate-900">Danh s&#225;ch k&#234;nh</p>
+                <p class="mt-1 text-[11px] text-slate-500">B&#7845;m v&#224;o k&#234;nh &#273;&#7875; m&#7903; Studio b&#7857;ng profile &#273;&#227; l&#432;u tr&#234;n VPS.</p>
+              </div>
+            </div>
+            <div id="studioAccessChannelList" class="max-h-[320px] space-y-2 overflow-y-auto pr-1"></div>
+          </div>
+
+          <div id="studioAccessSessionStep" class="hidden space-y-4">
+            <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-[12px]">
+                <div>
+                  <p class="text-slate-500">Tr&#7841;ng th&#225;i</p>
+                  <p id="studioAccessStatus" class="mt-0.5 font-semibold text-slate-900">Ch&#432;a kh&#7903;i t&#7841;o</p>
+                </div>
+                <div>
+                  <p class="text-slate-500">VPS</p>
+                  <p id="studioAccessWorker" class="mt-0.5 font-mono text-slate-700">-</p>
+                </div>
+                <div>
+                  <p class="text-slate-500">H&#7871;t h&#7841;n</p>
+                  <p id="studioAccessExpiry" class="mt-0.5 font-mono text-slate-700">-</p>
+                </div>
+              </div>
+            </div>
+
+            <div id="studioAccessLaunchPanel" class="rounded-xl border border-brand-200 bg-brand-50/70 px-4 py-3">
+              <div class="flex items-start gap-3">
+                <div id="studioAccessSpinner" class="mt-0.5 inline-flex h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600"></div>
+                <div class="min-w-0">
+                  <p id="studioAccessLaunchTitle" class="text-[12px] font-semibold text-brand-900">&#272;ang kh&#7903;i t&#7841;o phi&#234;n Studio</p>
+                  <p id="studioAccessLaunchDescription" class="mt-1 text-[11px] leading-relaxed text-brand-800">
+                    H&#7879; th&#7889;ng s&#7869; m&#7903; Chrome profile c&#7911;a k&#234;nh tr&#234;n VPS v&#224; chuy&#7875;n th&#7859;ng t&#7899;i <strong>YouTube Studio</strong>.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] leading-relaxed text-amber-900">
+              Sau khi x&#225;c minh xong, quay l&#7841;i app v&#224; b&#7845;m <strong>&#272;&#243;ng phi&#234;n</strong>. Kh&#244;ng m&#7903; song song profile n&#224;y khi worker &#273;ang upload b&#7857;ng c&#249;ng k&#234;nh.
+            </div>
+
+            <div id="studioAccessError" class="hidden rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[12px] text-rose-700"></div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
+          <button id="closeStudioAccessSessionButton" type="button" class="inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-4 text-[12px] font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50">
+            &#272;&#243;ng phi&#234;n
+          </button>
+          <div class="flex flex-wrap items-center gap-3">
+            <button id="backStudioAccessChannelButton" type="button" class="inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-4 text-[12px] font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900">
+              Ch&#7885;n k&#234;nh kh&#225;c
+            </button>
+            <button id="openStudioAccessSessionButton" type="button" disabled class="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-4 text-[12px] font-semibold text-slate-400 transition-colors disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 enabled:border-emerald-200 enabled:bg-emerald-50 enabled:text-emerald-700 enabled:hover:border-emerald-300 enabled:hover:bg-emerald-100">
+              <i data-lucide="external-link" class="h-3.5 w-3.5"></i>
+              M&#7903; noVNC
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="false"></div>
   <script id="dashboard-seed" type="application/json">{{ dashboard | tojson }}</script>
 
 <script defer src="{{ request.app.url_path_for('static', path='js/mobile_shell.js') }}"></script>
-<script src="/static/js/user_dashboard.js?v=20260413-upload-dashboard-poll-fix"></script>
+<script src="/static/js/user_dashboard.js?v=20260513-studio-access"></script>
   </body>
 </html>

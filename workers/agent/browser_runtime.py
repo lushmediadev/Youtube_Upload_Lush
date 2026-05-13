@@ -412,6 +412,10 @@ class BrowserRuntimeManager:
         time.sleep(0.4)
 
         chromium_log = (log_dir / "chromium.log").open("ab")
+        start_url = str(record.get("start_url") or config.start_url or "https://studio.youtube.com").strip()
+        if not start_url:
+            start_url = "https://studio.youtube.com"
+
         chromium = subprocess.Popen(
             [
                 config.chromium_bin,
@@ -428,7 +432,7 @@ class BrowserRuntimeManager:
                 "--window-position=0,0",
                 f"--window-size={viewport_width},{viewport_height}",
                 f"--remote-debugging-port={record['debug_port']}",
-                config.start_url,
+                start_url,
             ],
             env=env,
             stdout=chromium_log,

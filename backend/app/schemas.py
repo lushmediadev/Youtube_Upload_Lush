@@ -15,6 +15,7 @@ JobVisibility = Literal["draft", "private", "public", "unlisted"]
 UploadSessionStatus = Literal["active", "completed", "expired", "cancelled"]
 ChannelConnectionMode = Literal["oauth", "browser_profile"]
 BrowserSessionStatus = Literal["launching", "awaiting_confirmation", "confirmed", "closed", "expired", "failed"]
+BrowserSessionPurpose = Literal["channel_connect", "studio_access"]
 LiveStreamStatus = Literal[
     "draft",
     "scheduled",
@@ -253,6 +254,7 @@ class OAuthStartResponse(BaseModel):
 
 class BrowserSessionRecord(BaseModel):
     session_id: str
+    purpose: BrowserSessionPurpose = "channel_connect"
     owner_user_id: str
     owner_username: str
     target_worker_id: str = ""
@@ -278,6 +280,7 @@ class BrowserSessionRecord(BaseModel):
     detected_channel_id: str | None = None
     detected_channel_name: str | None = None
     channel_record_id: str | None = None
+    start_url: str | None = None
     last_error: str | None = None
     xvfb_pid: int | None = None
     openbox_pid: int | None = None
@@ -288,6 +291,7 @@ class BrowserSessionRecord(BaseModel):
 
 class BrowserSessionResponse(BaseModel):
     session_id: str
+    purpose: BrowserSessionPurpose = "channel_connect"
     status: BrowserSessionStatus
     target_worker_id: str
     target_worker_name: str
@@ -300,6 +304,7 @@ class BrowserSessionResponse(BaseModel):
     detected_channel_id: str | None = None
     detected_channel_name: str | None = None
     channel_record_id: str | None = None
+    start_url: str | None = None
     last_error: str | None = None
 
 

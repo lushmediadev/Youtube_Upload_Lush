@@ -210,6 +210,16 @@ async def create_user_browser_session(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.post("/user/channels/{channel_id}/studio-session")
+async def create_user_channel_studio_session(request: Request, channel_id: str):
+    try:
+        return store.create_channel_studio_session(_current_app_user_id(request), channel_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Không tìm thấy kênh.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/user/browser-sessions/{session_id}")
 async def get_user_browser_session(request: Request, session_id: str):
     try:

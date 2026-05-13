@@ -6898,6 +6898,7 @@ class AppStore:
     def _browser_session_response(self, session: BrowserSessionRecord) -> BrowserSessionResponse:
         return BrowserSessionResponse(
             session_id=session.session_id,
+            purpose=session.purpose,
             status=session.status,
             target_worker_id=session.target_worker_id,
             target_worker_name=session.target_worker_name,
@@ -6910,6 +6911,7 @@ class AppStore:
             detected_channel_id=session.detected_channel_id,
             detected_channel_name=session.detected_channel_name,
             channel_record_id=session.channel_record_id,
+            start_url=session.start_url,
             last_error=session.last_error,
         )
 
@@ -6936,12 +6938,18 @@ class AppStore:
             self.browser_sessions = keep_sessions
             self._save_state()
 
-    def _active_browser_session_for_user(self, user_id: str) -> BrowserSessionRecord | None:
+    def _active_browser_session_for_user(
+        self,
+        user_id: str,
+        *,
+        purpose: str | None = None,
+    ) -> BrowserSessionRecord | None:
         self._cleanup_stale_browser_sessions()
         candidates = [
             session
             for session in self.browser_sessions
             if session.owner_user_id == user_id
+            and (purpose is None or session.purpose == purpose)
             and session.status in {"launching", "awaiting_confirmation", "confirmed"}
             and session.expires_at > self._now(trim=False)
         ]
@@ -7166,7 +7174,7 @@ class AppStore:
     def create_browser_session(self, user_id: str, worker_id: str | None = None) -> BrowserSessionResponse:
         user = self._require_workspace_user(user_id)
         worker = self._pick_worker_for_user(user, worker_id)
-        existing = self._active_browser_session_for_user(user.id)
+        existing = self._active_browser_session_for_user(user.id, purpose="channel_connect")
         if existing:
             self._sync_browser_session_details(existing)
             existing.status = "closed"
@@ -7202,6 +7210,66 @@ class AppStore:
             status="launching",
             created_at=now,
             expires_at=now + timedelta(minutes=lifetime_minutes),
+            purpose="channel_connect",
+            start_url="https://studio.youtube.com",
+        )
+        self.browser_sessions.append(session)
+        self._sync_browser_session_details(session)
+        self._save_state()
+        return self._browser_session_response(session)
+
+    def create_channel_studio_session(self, user_id: str, channel_id: str) -> BrowserSessionResponse:
+        user = self._require_workspace_user(user_id)
+        channel = self._find_channel(channel_id)
+        if channel.id not in self._user_channel_ids(user.id):
+            raise KeyError(channel_id)
+        worker = self._assert_channel_matches_user_worker(user, channel)
+        if channel.connection_mode != "browser_profile" or not str(channel.browser_profile_key or "").strip():
+            raise ValueError("Kênh này chưa có Chrome profile để truy cập Studio.")
+
+        existing = next(
+            (
+                session
+                for session in self.browser_sessions
+                if session.owner_user_id == user.id
+                and session.purpose == "studio_access"
+                and session.channel_record_id == channel.id
+                and session.status in {"launching", "awaiting_confirmation", "confirmed"}
+                and session.expires_at > self._now(trim=False)
+            ),
+            None,
+        )
+        if existing:
+            self._sync_browser_session_details(existing)
+            self._save_state()
+            return self._browser_session_response(existing)
+
+        self._assert_worker_browser_ready(worker)
+        display_number, vnc_port, web_port, debug_port = self._allocate_browser_ports_for_worker(worker)
+        now = self._now(trim=False)
+        studio_url = f"https://studio.youtube.com/channel/{channel.channel_id}/videos"
+        session = BrowserSessionRecord(
+            session_id=f"browser-{uuid4().hex[:12]}",
+            purpose="studio_access",
+            owner_user_id=user.id,
+            owner_username=user.username,
+            target_worker_id=worker.id,
+            target_worker_name=self._resolve_worker_display_name(worker.id),
+            target_worker_public_base_url=str(worker.public_base_url or "").rstrip("/") or None,
+            profile_key=str(channel.browser_profile_key or "").strip(),
+            display_number=display_number,
+            vnc_port=vnc_port,
+            web_port=web_port,
+            debug_port=debug_port,
+            access_password=secrets.token_urlsafe(9),
+            status="launching",
+            created_at=now,
+            expires_at=now + timedelta(minutes=30),
+            profile_path=channel.browser_profile_path,
+            channel_record_id=channel.id,
+            detected_channel_id=channel.channel_id,
+            detected_channel_name=channel.name,
+            start_url=studio_url,
         )
         self.browser_sessions.append(session)
         self._sync_browser_session_details(session)
@@ -7220,6 +7288,8 @@ class AppStore:
         user = self._require_workspace_user(user_id)
         self._cleanup_stale_browser_sessions()
         session = self._find_user_browser_session(user.id, session_id)
+        if session.purpose != "channel_connect":
+            raise ValueError("Phiên này chỉ dùng để truy cập Studio, không dùng để thêm kênh.")
         if session.status not in {"awaiting_confirmation", "confirmed"}:
             raise ValueError("Browser session không còn ở trạng thái xác nhận hợp lệ.")
 
@@ -8391,7 +8461,7 @@ class AppStore:
         now = self._now()
         browser_workers = self._workspace_workers_for_user(bootstrap.user)
         has_assigned_worker = bool(browser_workers)
-        active_browser_session = self._active_browser_session_for_user(user_id)
+        active_browser_session = self._active_browser_session_for_user(user_id, purpose="channel_connect")
         active_browser_worker_id = active_browser_session.target_worker_id if active_browser_session else ""
         browser_worker = next((worker for worker in browser_workers if worker.id == active_browser_worker_id), None)
         if browser_worker is None and len(browser_workers) == 1:

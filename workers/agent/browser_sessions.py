@@ -25,12 +25,14 @@ class BrowserSessionCoordinator:
     def _base_record(session: BrowserSessionAssignment) -> dict[str, Any]:
         return {
             "session_id": session.session_id,
+            "purpose": session.purpose,
             "profile_key": session.profile_key,
             "display_number": session.display_number,
             "vnc_port": session.vnc_port,
             "web_port": session.web_port,
             "debug_port": session.debug_port,
             "access_password": session.access_password,
+            "start_url": session.start_url,
         }
 
     def _stop_local_session(self, session_id: str) -> None:

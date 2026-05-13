@@ -293,6 +293,7 @@ class YouTubeUploadTarget:
 @dataclass
 class BrowserSessionAssignment:
     session_id: str
+    purpose: str
     status: str
     profile_key: str
     display_number: int
@@ -305,6 +306,7 @@ class BrowserSessionAssignment:
     detected_channel_id: str | None
     detected_channel_name: str | None
     novnc_url: str | None
+    start_url: str | None
 
 
 @dataclass
@@ -477,6 +479,7 @@ def poll_browser_sessions(
         sessions.append(
             BrowserSessionAssignment(
                 session_id=str(item["session_id"]),
+                purpose=str(item.get("purpose") or "channel_connect"),
                 status=str(item["status"]),
                 profile_key=str(item["profile_key"]),
                 display_number=int(item["display_number"]),
@@ -489,6 +492,7 @@ def poll_browser_sessions(
                 detected_channel_id=item.get("detected_channel_id"),
                 detected_channel_name=item.get("detected_channel_name"),
                 novnc_url=item.get("novnc_url"),
+                start_url=item.get("start_url"),
             )
         )
     cleanup_profiles = [

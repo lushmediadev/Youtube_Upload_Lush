@@ -25,6 +25,8 @@
   const LIVE_REFRESH_INTERVAL_HIDDEN_MS = 2500;
   let activeBrowserSession = null;
   let browserSessionPollHandle = null;
+  let activeStudioSession = null;
+  let studioSessionPollHandle = null;
   const renderCopy = {
     openYoutube: "\u004d\u1edf YouTube",
     edit: "S\u1eeda",
@@ -78,6 +80,25 @@
       ...init,
       credentials: init.credentials ?? "include",
     });
+
+  const formatSessionExpiry = (value) => {
+    if (!value) return "-";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString("vi-VN");
+  };
+
+  const formatBrowserLikeSessionStatus = (status) => {
+    const mapping = {
+      launching: "Đang khởi tạo",
+      awaiting_confirmation: "Đã sẵn sàng",
+      confirmed: "Đã sẵn sàng",
+      failed: "Khởi tạo lỗi",
+      closed: "Đã đóng",
+      expired: "Đã hết hạn",
+    };
+    return mapping[status] || status || "Chưa khởi tạo";
+  };
 
   const applyConnectedChannelSearchFilter = () => {
     if (!(connectedChannelSearchInput instanceof HTMLInputElement) || !(connectedChannelList instanceof HTMLElement)) return;
@@ -164,6 +185,7 @@
 
     initChannelActions();
     applyConnectedChannelSearchFilter();
+    if (typeof window.syncStudioAccessButton === "function") window.syncStudioAccessButton();
     if (window.lucide) window.lucide.createIcons();
   };
 
@@ -2513,6 +2535,287 @@
     }
   };
 
+  const initStudioAccessButton = () => {
+    const button = document.getElementById("studioAccessButton");
+    const modal = document.getElementById("studioAccessModal");
+    const closeModalButton = document.getElementById("closeStudioAccessModal");
+    const channelStep = document.getElementById("studioAccessChannelStep");
+    const sessionStep = document.getElementById("studioAccessSessionStep");
+    const channelList = document.getElementById("studioAccessChannelList");
+    const statusNode = document.getElementById("studioAccessStatus");
+    const workerNode = document.getElementById("studioAccessWorker");
+    const expiryNode = document.getElementById("studioAccessExpiry");
+    const launchPanel = document.getElementById("studioAccessLaunchPanel");
+    const spinner = document.getElementById("studioAccessSpinner");
+    const launchTitle = document.getElementById("studioAccessLaunchTitle");
+    const launchDescription = document.getElementById("studioAccessLaunchDescription");
+    const errorNode = document.getElementById("studioAccessError");
+    const closeSessionButton = document.getElementById("closeStudioAccessSessionButton");
+    const backButton = document.getElementById("backStudioAccessChannelButton");
+    const openSessionButton = document.getElementById("openStudioAccessSessionButton");
+    if (!button || !modal || !closeModalButton || !channelList || !closeSessionButton || !openSessionButton) return;
+
+    const activeStatuses = new Set(["launching", "awaiting_confirmation", "confirmed"]);
+
+    const stopStudioPolling = () => {
+      if (studioSessionPollHandle) {
+        window.clearInterval(studioSessionPollHandle);
+        studioSessionPollHandle = null;
+      }
+    };
+
+    const getChannels = () => (Array.isArray(dashboardSeed.connected_channels) ? dashboardSeed.connected_channels : []);
+
+    window.syncStudioAccessButton = () => {
+      const hasChannels = getChannels().length > 0;
+      button.disabled = !hasChannels;
+      button.title = hasChannels ? "" : "Chưa có kênh nào để truy cập Studio.";
+    };
+
+    const isStudioSessionReady = (session) => !!(session?.novnc_url && ["awaiting_confirmation", "confirmed"].includes(session.status));
+
+    const setStudioLaunchState = (mode, session = null) => {
+      if (!launchPanel || !spinner || !launchTitle || !launchDescription) return;
+      launchPanel.classList.remove("border-brand-200", "bg-brand-50/70", "border-emerald-200", "bg-emerald-50/80", "border-rose-200", "bg-rose-50/80");
+      spinner.classList.remove("hidden", "border-brand-200", "border-t-brand-600", "border-emerald-200", "border-t-emerald-600");
+
+      if (mode === "ready") {
+        launchPanel.classList.add("border-emerald-200", "bg-emerald-50/80");
+        spinner.classList.add("hidden");
+        launchTitle.textContent = "Phiên Studio đã sẵn sàng";
+        launchDescription.textContent = "Bấm Mở noVNC để vào YouTube Studio, xử lý Verify it's you hoặc kiểm tra trạng thái kênh.";
+        return;
+      }
+      if (mode === "failed") {
+        launchPanel.classList.add("border-rose-200", "bg-rose-50/80");
+        spinner.classList.add("hidden");
+        launchTitle.textContent = "Khởi tạo phiên Studio thất bại";
+        launchDescription.textContent = session?.last_error || "Worker chưa mở được profile kênh. Đóng phiên và thử lại.";
+        return;
+      }
+      launchPanel.classList.add("border-brand-200", "bg-brand-50/70");
+      spinner.classList.add("border-brand-200", "border-t-brand-600");
+      launchTitle.textContent = "Đang khởi tạo phiên Studio";
+      launchDescription.textContent = "Hệ thống đang mở Chrome profile đã lưu và chuyển tới YouTube Studio của kênh.";
+    };
+
+    const renderStudioSession = (session) => {
+      activeStudioSession = session || null;
+      const hasSession = !!session?.session_id;
+      channelStep?.classList.toggle("hidden", hasSession);
+      sessionStep?.classList.toggle("hidden", !hasSession);
+
+      if (statusNode) statusNode.textContent = formatBrowserLikeSessionStatus(session?.status);
+      if (workerNode) workerNode.textContent = session?.target_worker_name || "-";
+      if (expiryNode) expiryNode.textContent = formatSessionExpiry(session?.expires_at);
+
+      const ready = isStudioSessionReady(session);
+      if (!session) {
+        setStudioLaunchState("launching", null);
+      } else if (session.status === "failed") {
+        setStudioLaunchState("failed", session);
+      } else if (ready) {
+        setStudioLaunchState("ready", session);
+      } else {
+        setStudioLaunchState("launching", session);
+      }
+
+      if (errorNode) {
+        if (session?.last_error && session.status === "failed") {
+          errorNode.textContent = session.last_error;
+          errorNode.classList.remove("hidden");
+        } else {
+          errorNode.textContent = "";
+          errorNode.classList.add("hidden");
+        }
+      }
+
+      openSessionButton.disabled = !ready;
+      closeSessionButton.disabled = !hasSession;
+      closeSessionButton.classList.toggle("invisible", !hasSession);
+      if (backButton instanceof HTMLButtonElement) {
+        backButton.disabled = false;
+        backButton.classList.toggle("hidden", !hasSession);
+      }
+    };
+
+    const renderStudioChannelList = () => {
+      const channels = getChannels();
+      if (!channels.length) {
+        channelList.innerHTML = `
+          <div class="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-[12px] text-slate-500">
+            Chưa có kênh nào để truy cập Studio.
+          </div>
+        `;
+        return;
+      }
+      channelList.innerHTML = channels
+        .map((channel) => {
+          const channelRecordId = escapeHtml(channel.id || "");
+          const title = escapeHtml(channel.title || "");
+          const channelId = escapeHtml(channel.channel_id || "");
+          const workerLabel = escapeHtml(channel.worker_label || "");
+          const avatarClass = `${escapeHtml(channel.avatar_class || "")}${channel.avatar_small ? " text-[10px]" : " text-white text-xs"}`;
+          return `
+            <button type="button" data-studio-channel-id="${channelRecordId}" class="group flex w-full items-center gap-3 rounded-xl border border-slate-200/80 bg-white p-3 text-left transition-all hover:-translate-y-0.5 hover:border-brand-200 hover:bg-brand-50/40 hover:shadow-sm">
+              <span class="channel-avatar-shell focus:outline-none">
+                <span class="channel-avatar-inner">
+                  ${renderAvatarWithFallback({
+                    imageUrl: channel.avatar_url,
+                    alt: title,
+                    imageClass: "channel-row-avatar object-cover border border-slate-200",
+                    fallbackClass: `channel-avatar-fallback ${avatarClass}`,
+                    fallbackText: channel.avatar || "",
+                  })}
+                </span>
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate text-[13px] font-semibold text-slate-900">${title}</span>
+                <span class="mt-0.5 block truncate font-mono text-[11px] text-slate-500">${channelId}</span>
+                ${workerLabel ? `<span class="mt-1 inline-flex max-w-full items-center gap-1.5 rounded-full border border-rose-100 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-600">${workerLabel}</span>` : ""}
+              </span>
+              <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-brand-100 bg-brand-50 text-brand-700 transition-colors group-hover:bg-brand-100">
+                <i data-lucide="external-link" class="h-4 w-4"></i>
+              </span>
+            </button>
+          `;
+        })
+        .join("");
+
+      channelList.querySelectorAll("[data-studio-channel-id]").forEach((item) => {
+        if (!(item instanceof HTMLButtonElement)) return;
+        item.addEventListener("click", () => {
+          const channelId = String(item.dataset.studioChannelId || "").trim();
+          if (channelId) void createStudioSession(channelId);
+        });
+      });
+      if (window.lucide) window.lucide.createIcons();
+    };
+
+    const openModal = () => {
+      modal.classList.remove("hidden");
+      renderStudioChannelList();
+      renderStudioSession(activeStudioSession);
+    };
+
+    const hideModal = () => {
+      modal.classList.add("hidden");
+      stopStudioPolling();
+    };
+
+    const refreshStudioSession = async (silent = false) => {
+      if (!activeStudioSession?.session_id) return null;
+      try {
+        const response = await workspaceFetch(`/api/user/browser-sessions/${activeStudioSession.session_id}`);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "Không thể tải phiên Studio.");
+        renderStudioSession(payload);
+        if (!activeStatuses.has(String(payload.status || ""))) stopStudioPolling();
+        return payload;
+      } catch (error) {
+        if (!silent) showToast(error.message || "Không thể tải phiên Studio.", "error");
+        return null;
+      }
+    };
+
+    const startStudioPolling = () => {
+      stopStudioPolling();
+      studioSessionPollHandle = window.setInterval(() => {
+        void refreshStudioSession(true);
+      }, 4000);
+    };
+
+    const createStudioSession = async (channelId) => {
+      renderStudioSession({
+        session_id: "pending",
+        status: "launching",
+        target_worker_name: "Đang chọn VPS",
+        expires_at: null,
+      });
+      try {
+        const response = await workspaceFetch(`/api/user/channels/${encodeURIComponent(channelId)}/studio-session`, {
+          method: "POST",
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "Không thể tạo phiên Studio.");
+        renderStudioSession(payload);
+        startStudioPolling();
+      } catch (error) {
+        renderStudioSession(null);
+        showToast(error.message || "Không thể tạo phiên Studio.", "error");
+      }
+    };
+
+    const closeStudioSession = async ({ ask = true } = {}) => {
+      if (!activeStudioSession?.session_id || activeStudioSession.session_id === "pending") {
+        renderStudioSession(null);
+        return;
+      }
+      if (ask && !window.confirm("Đóng phiên Studio này?")) return;
+      closeSessionButton.disabled = true;
+      try {
+        const response = await workspaceFetch(`/api/user/browser-sessions/${activeStudioSession.session_id}`, {
+          method: "DELETE",
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "Không thể đóng phiên Studio.");
+        stopStudioPolling();
+        renderStudioSession(null);
+      } catch (error) {
+        showToast(error.message || "Không thể đóng phiên Studio.", "error");
+      } finally {
+        closeSessionButton.disabled = false;
+      }
+    };
+
+    button.addEventListener("click", () => {
+      openModal();
+    });
+
+    closeModalButton.addEventListener("click", () => {
+      if (activeStudioSession?.session_id && activeStatuses.has(String(activeStudioSession.status || ""))) {
+        void closeStudioSession({ ask: true }).then(() => {
+          if (!activeStudioSession?.session_id) hideModal();
+        });
+        return;
+      }
+      hideModal();
+    });
+
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal || event.target === modal.firstElementChild) {
+        if (activeStudioSession?.session_id && activeStatuses.has(String(activeStudioSession.status || ""))) return;
+        hideModal();
+      }
+    });
+
+    closeSessionButton.addEventListener("click", async () => {
+      await closeStudioSession({ ask: true });
+    });
+
+    if (backButton instanceof HTMLButtonElement) {
+      backButton.addEventListener("click", async () => {
+        if (activeStudioSession?.session_id && activeStatuses.has(String(activeStudioSession.status || ""))) {
+          await closeStudioSession({ ask: true });
+        }
+        renderStudioChannelList();
+        renderStudioSession(null);
+      });
+    }
+
+    openSessionButton.addEventListener("click", async () => {
+      const session = activeStudioSession?.session_id ? await refreshStudioSession(true) : null;
+      const next = session || activeStudioSession;
+      if (!next?.novnc_url || !isStudioSessionReady(next)) {
+        showToast("VPS chưa báo sẵn sàng noVNC. Chờ vài giây rồi thử lại.", "error");
+        return;
+      }
+      window.open(next.novnc_url, "_blank", "noopener");
+    });
+
+    window.syncStudioAccessButton();
+  };
+
   const initJobActions = () => {
     document.querySelectorAll("[data-job-action]").forEach((button) => {
       button.addEventListener("click", async () => {
@@ -2697,6 +3000,7 @@
   initFileInputs();
   initForm();
   initChannelConnectButton();
+  initStudioAccessButton();
   initBulkDeleteVisibleJobs();
   initChannelActions();
   initConnectedChannelSearch();

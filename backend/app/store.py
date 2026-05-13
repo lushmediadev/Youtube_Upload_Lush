@@ -409,6 +409,7 @@ class AppStore:
         self.telegram_link_requests: dict[str, dict[str, Any]] = {}
         self.live_telegram_link_requests: dict[str, dict[str, Any]] = {}
         self.admin_notifications: list[dict[str, Any]] = []
+        self._worker_job_progress_last_saved_at: dict[str, datetime] = {}
         self._live_progress_last_saved_at: dict[str, datetime] = {}
         self._live_worker_heartbeat_last_saved_at: dict[str, datetime] = {}
         self._worker_heartbeat_last_saved_at: dict[str, datetime] = {}
@@ -5342,6 +5343,8 @@ class AppStore:
             job = self._find_claimed_job(job_id, worker_id)
             self._ensure_worker_job_can_continue(job)
             now = self._now()
+            previous_status = str(job.status or "").strip().lower()
+            normalized_status = str(status or "").strip().lower()
 
             job.claimed_by_worker_id = worker_id
             job.claimed_at = job.claimed_at or now
@@ -5369,8 +5372,15 @@ class AppStore:
                 job.render_progress = max(int(job.render_progress or 0), 100)
                 job.upload_progress = max(int(job.upload_progress or 0), bounded_progress)
             self._sync_worker_runtime_status(worker)
-
-            self._save_state()
+            should_save_state = self._should_persist_worker_job_progress_update(
+                job,
+                previous_status=previous_status,
+                normalized_status=normalized_status,
+                now=now,
+            )
+            if should_save_state:
+                self._save_state()
+                self._worker_job_progress_last_saved_at[job.id] = now
             return deepcopy(job)
 
     def complete_worker_job(
@@ -5527,6 +5537,14 @@ class AppStore:
             return max(5, int(raw_value))
         except ValueError:
             return 300
+
+    @staticmethod
+    def _worker_job_progress_save_interval_seconds() -> int:
+        raw_value = str(os.getenv("WORKER_JOB_PROGRESS_SAVE_INTERVAL_SECONDS", "120")).strip()
+        try:
+            return max(5, int(raw_value))
+        except ValueError:
+            return 120
 
     def _live_runtime_retry_anchor(self, stream: LiveStreamRecord) -> datetime | None:
         return (
@@ -6756,6 +6774,24 @@ class AppStore:
             self._worker_heartbeat_last_saved_at[worker.id] = now
             return False
         return last_saved_at + timedelta(seconds=self._worker_heartbeat_save_interval_seconds()) <= now
+
+    def _should_persist_worker_job_progress_update(
+        self,
+        job: RenderJobRecord,
+        *,
+        previous_status: str,
+        normalized_status: str,
+        now: datetime,
+    ) -> bool:
+        if previous_status != normalized_status:
+            return True
+        if normalized_status not in self._worker_active_job_statuses():
+            return True
+        last_saved_at = self._worker_job_progress_last_saved_at.get(job.id)
+        if last_saved_at is None:
+            self._worker_job_progress_last_saved_at[job.id] = now
+            return False
+        return last_saved_at + timedelta(seconds=self._worker_job_progress_save_interval_seconds()) <= now
 
     def update_live_stream_progress(
         self,

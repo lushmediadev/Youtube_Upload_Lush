@@ -1,6 +1,7 @@
 import os
 import unittest
 from datetime import datetime
+from datetime import timedelta
 
 os.environ.setdefault("APP_ENABLE_LIVE_DEMO_SEED", "0")
 
@@ -271,6 +272,43 @@ class WorkerJobClaimingTests(unittest.TestCase):
         self.store.heartbeat_worker(payload)
 
         self.assertEqual(self.store.workers[0].load_percent, 5)
+        self.assertEqual(self.store.save_calls, 0)
+
+    def test_worker_job_progress_throttles_same_status_persistence(self) -> None:
+        job = make_job(
+            "job-progress",
+            "progress",
+            "channel-coffee",
+            "Coffee Jazz Moments",
+            queue_order=1,
+            created_at=datetime(2026, 5, 8, 14, 4),
+        )
+        job.status = "downloading"
+        job.claimed_by_worker_id = "worker-11"
+        job.claimed_at = datetime.now()
+        job.lease_expires_at = datetime.now() + timedelta(minutes=5)
+        self.store.jobs = [job]
+
+        first = self.store.update_worker_job_progress(
+            job_id="job-progress",
+            worker_id="worker-11",
+            shared_secret=self.store.get_worker_shared_secret(),
+            status="downloading",
+            progress=10,
+            message="downloading",
+        )
+        second = self.store.update_worker_job_progress(
+            job_id="job-progress",
+            worker_id="worker-11",
+            shared_secret=self.store.get_worker_shared_secret(),
+            status="downloading",
+            progress=11,
+            message="downloading",
+        )
+
+        self.assertEqual(first.status, "downloading")
+        self.assertEqual(second.progress, 11)
+        self.assertEqual(self.store.jobs[0].download_progress, 11)
         self.assertEqual(self.store.save_calls, 0)
 
 

@@ -289,6 +289,15 @@
                 B&#7843;ng n&#224;y d&#249;ng layout BOT live l&#224;m g&#7889;c, g&#7897;p chung upload, live v&#224; backup &#273;&#7875; theo d&#245;i t&#224;i nguy&#234;n c&#249;ng thao t&#225;c qu&#7843;n tr&#7883; trong m&#7897;t ch&#7895;.
             </p>
         </div>
+        <div class="hidden" data-admin-table-toolbar-extra>
+            <a
+                href="{{ dashboard.bot_export_url or '/admin/ManagerBOT/export' }}"
+                class="action-btn action-btn-slate h-[42px] shrink-0 whitespace-nowrap px-3 text-[12px]"
+            >
+                <i data-lucide="download" class="h-3.5 w-3.5"></i>
+                Xu&#7845;t DS BOT
+            </a>
+        </div>
 
         <div class="table-shell">
             <table class="admin-table admin-table-live-workers" data-admin-list-table="worker-index" data-admin-delete-page-pass="1234">

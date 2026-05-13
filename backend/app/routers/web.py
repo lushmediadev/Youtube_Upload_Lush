@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import csv
 from datetime import datetime
-from io import StringIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlencode
+from zipfile import ZIP_DEFLATED, ZipFile
+from xml.sax.saxutils import escape as xml_escape
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -42,6 +44,83 @@ router = APIRouter(tags=["web"])
 PUBLIC_APP_NAME = "Youtube Lush"
 PUBLIC_SUPPORT_EMAIL = "hoangpear99@gmail.com"
 ADMIN_DASHBOARD_HOME = "/admin/user/index"
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _xlsx_col_name(index: int) -> str:
+    name = ""
+    value = index
+    while value:
+        value, remainder = divmod(value - 1, 26)
+        name = chr(65 + remainder) + name
+    return name
+
+
+def _xlsx_inline_cell(ref: str, value: Any) -> str:
+    text = xml_escape("" if value is None else str(value), {'"': "&quot;"})
+    return f'<c r="{ref}" t="inlineStr"><is><t xml:space="preserve">{text}</t></is></c>'
+
+
+def _build_simple_xlsx(rows: list[dict[str, Any]], fieldnames: list[str]) -> bytes:
+    sheet_rows: list[str] = []
+    all_rows = [dict(zip(fieldnames, fieldnames))] + rows
+    for row_index, row in enumerate(all_rows, start=1):
+        cells = [
+            _xlsx_inline_cell(f"{_xlsx_col_name(col_index)}{row_index}", row.get(field))
+            for col_index, field in enumerate(fieldnames, start=1)
+        ]
+        sheet_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
+    column_defs = "".join(
+        f'<col min="{index}" max="{index}" width="{width}" customWidth="1"/>'
+        for index, width in enumerate([18, 18, 12, 22, 12, 14, 16], start=1)
+    )
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f"<cols>{column_defs}</cols><sheetData>{''.join(sheet_rows)}</sheetData>"
+        "</worksheet>"
+    )
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets><sheet name="Danh sach BOT" sheetId="1" r:id="rId1"/></sheets>'
+        "</workbook>"
+    )
+    content_types_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        "</Types>"
+    )
+    root_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        'Target="xl/workbook.xml"/>'
+        "</Relationships>"
+    )
+    workbook_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+        'Target="worksheets/sheet1.xml"/>'
+        "</Relationships>"
+    )
+    buffer = BytesIO()
+    with ZipFile(buffer, mode="w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types_xml)
+        archive.writestr("_rels/.rels", root_rels_xml)
+        archive.writestr("xl/workbook.xml", workbook_xml)
+        archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
+        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return buffer.getvalue()
 
 
 def _admin_identity_payload(current_user: AdminSessionUser) -> dict:
@@ -1415,7 +1494,46 @@ async def admin_bot_index(
         "browser_session_enabled": True,
         "control_plane_url": _resolve_worker_bootstrap_control_plane_url(request),
     }
+    export_query: list[tuple[str, str]] = [("workspace", workspace_mode)]
+    if userId:
+        export_query.append(("userId", userId))
+    for manager_id in selected_manager_ids:
+        export_query.append(("manager_ids", manager_id))
+    dashboard["bot_export_url"] = "/admin/ManagerBOT/export"
+    if export_query:
+        dashboard["bot_export_url"] += "?" + urlencode(export_query)
     return _render(request, dashboard)
+
+
+@router.get("/admin/ManagerBOT/export")
+@router.get("/admin/managerbot/export")
+async def admin_bot_export(
+    request: Request,
+    manager_ids: list[str] = Query(default=[]),
+    userId: str | None = None,
+    workspace: str = "upload",
+):
+    current_admin = require_admin_access(request)
+    workspace_mode = _resolve_admin_workspace(workspace)
+    if userId:
+        _enforce_user_scope(current_admin, userId)
+    selected_manager_ids = _resolve_manager_ids(request, manager_ids)
+    selected_manager_ids = _resolve_bot_scope_manager_ids(selected_manager_ids, userId)
+    if current_admin.role == "manager" and not selected_manager_ids:
+        selected_manager_ids = [current_admin.id]
+    rows = store.get_bot_export_rows_filtered(
+        manager_ids=selected_manager_ids if current_admin.role == "manager" or selected_manager_ids else None,
+        workspace_mode=workspace_mode,
+    )
+    fieldnames = ["tenmanager", "ipBOT", "User", "Pass", "Loại", "Local", "Trạng Thái"]
+    content = _build_simple_xlsx(rows, fieldnames)
+    filename = f"danh-sach-bot-{datetime.now().strftime('%Y%m%d-%H%M%S')}.xlsx"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{quote(filename)}',
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    return Response(content=content, media_type=XLSX_MEDIA_TYPE, headers=headers)
 
 
 @router.get("/admin/bot/assignment", response_class=HTMLResponse)

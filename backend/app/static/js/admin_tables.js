@@ -364,6 +364,16 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
 
+    const toolbarExtraSource = findDirectChild(function (child) {
+      return child.hasAttribute("data-admin-table-toolbar-extra");
+    });
+    if (toolbarExtraSource) {
+      while (toolbarExtraSource.firstChild) {
+        toolbar.appendChild(toolbarExtraSource.firstChild);
+      }
+      toolbarExtraSource.remove();
+    }
+
     let footer = findDirectChild(function (child) {
       return child.hasAttribute("data-admin-table-footer");
     });

@@ -11556,6 +11556,7 @@ class AppStore:
                     "bot_function_label": bot_function_label,
                     "assigned_user_id": assigned_user_id,
                     "assigned_user_ids": assigned_user_ids,
+                    "connection_ssh_user": str(connection_profile.get("ssh_user") or "").strip() or "root",
                     "connection_password": str(connection_profile.get("password") or "").strip(),
                     "assigned_user_name": assigned_user_name,
                     "assigned_user_names_text": ", ".join(assigned_user_names),
@@ -11627,6 +11628,30 @@ class AppStore:
                 rows.append(self._build_operation_placeholder_row(task))
         for index, row in enumerate(rows, start=1):
             row["index"] = index
+        return rows
+
+    def get_bot_export_rows_filtered(
+        self,
+        *,
+        manager_ids: list[str] | None = None,
+        workspace_mode: str = "upload",
+    ) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        for row in self._build_bot_rows(manager_ids, workspace_mode=workspace_mode):
+            if row.get("is_operation_placeholder"):
+                continue
+            status_key = str(row.get("status_key") or "").strip().lower()
+            rows.append(
+                {
+                    "tenmanager": str(row.get("manager_name") or "").strip(),
+                    "ipBOT": str(row.get("raw_name") or row.get("name") or "").strip(),
+                    "User": str(row.get("connection_ssh_user") or "root").strip() or "root",
+                    "Pass": str(row.get("connection_password") or "").strip(),
+                    "Loại": str(row.get("bot_type_label") or "").strip(),
+                    "Local": str(row.get("local") or "").strip(),
+                    "Trạng Thái": "Disconnect" if status_key == "offline" else "Connect",
+                }
+            )
         return rows
 
     def get_admin_bot_index_context(

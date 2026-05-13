@@ -77,6 +77,28 @@ class BotLocalTests(unittest.TestCase):
         rows = self.store._build_bot_rows()
         self.assertEqual(rows[0]["local"], "EU")
 
+    def test_bot_export_rows_include_connection_profile_and_connect_state(self) -> None:
+        self.store.workers[0].manager_name = "thanh"
+        self.store.workers[0].local = "US-west"
+        self.store.worker_connection_profiles = {
+            "worker-eu": {"ssh_user": "root", "password": "secret-pass"}
+        }
+
+        rows = self.store.get_bot_export_rows_filtered()
+
+        self.assertEqual(
+            rows[0],
+            {
+                "tenmanager": "thanh",
+                "ipBOT": "109.123.233.131",
+                "User": "root",
+                "Pass": "secret-pass",
+                "Loại": "Upload",
+                "Local": "US-west",
+                "Trạng Thái": "Connect",
+            },
+        )
+
     def test_pending_install_placeholder_exposes_requested_local(self) -> None:
         row = self.store._build_operation_placeholder_row(
             {

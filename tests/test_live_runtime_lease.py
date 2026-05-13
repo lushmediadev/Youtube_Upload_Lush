@@ -199,6 +199,42 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         )
         self.assertIsNone(claimed)
 
+    def test_forever_primary_with_active_backup_keeps_hot_standby_reclaim_policy(self) -> None:
+        primary = make_stream(
+            status="disconnected",
+            lease_expires_at=datetime(2000, 1, 1),
+            first_streaming_started_at=datetime(2026, 5, 11, 21, 0),
+        )
+        primary.backup_worker_id = "live-worker-backup"
+        primary.backup_worker_name = "62.146.169.230"
+        primary.backup_stream_id = "live-backup"
+        backup = make_stream(
+            status="streaming",
+            lease_expires_at=datetime.now() + timedelta(minutes=5),
+            first_streaming_started_at=datetime(2026, 5, 11, 21, 1),
+        )
+        backup.id = "live-backup"
+        backup.primary_worker_id = "live-worker-backup"
+        backup.primary_worker_name = "62.146.169.230"
+        backup.runtime_role = "backup"
+        backup.is_runtime_clone = True
+        backup.parent_stream_id = primary.id
+        backup.claimed_by_worker_id = "live-worker-backup"
+        backup.claimed_by_role = "backup"
+        self.store.live_workers.append(make_live_worker("live-worker-backup"))
+        self.store.live_user_worker_links.append(
+            {"id": 2, "user_id": "user-1", "worker_id": "live-worker-backup", "threads": 1, "live_role": "backup"}
+        )
+        self.store.live_streams = [primary, backup]
+
+        self.assertTrue(
+            self.store._can_claim_live_stream(
+                primary,
+                worker_id="live-worker-01",
+                now=datetime.now(),
+            )
+        )
+
     def test_backup_clone_can_reclaim_after_disconnect(self) -> None:
         primary = make_stream(
             status="disconnected",

@@ -5549,6 +5549,13 @@ class AppStore:
         normalized_status = str(stream.status or "").strip().lower() or "scheduled"
         if normalized_status != "disconnected":
             return False
+        if (
+            self._is_visible_live_stream(stream)
+            and not stream.is_forever
+            and stream.backup_worker_id
+            and self._live_backup_clone_is_active(stream)
+        ):
+            return False
         if not self._live_stream_requires_fast_failover(stream):
             return self._live_runtime_retry_ready(stream, now=now)
         if self._is_live_hot_standby_backup_clone(stream):
@@ -5601,6 +5608,17 @@ class AppStore:
     @staticmethod
     def _live_stream_has_runtime_claim(stream: LiveStreamRecord) -> bool:
         return bool(str(stream.claimed_by_worker_id or "").strip())
+
+    def _live_backup_clone_is_active(self, stream: LiveStreamRecord) -> bool:
+        clone = self._find_live_backup_clone_optional(stream)
+        if clone is None:
+            return False
+        clone_status = str(clone.status or "").strip().lower() or "scheduled"
+        if clone_status in {"stopped", "ended", "error"}:
+            return False
+        if self._live_stream_has_runtime_claim(clone):
+            return True
+        return clone_status == "streaming"
 
     @staticmethod
     def _request_live_stream_stop(

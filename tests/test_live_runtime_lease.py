@@ -155,6 +155,83 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
             )
         )
 
+    def test_timed_primary_with_active_backup_does_not_reclaim_after_disconnect(self) -> None:
+        end_time = datetime.now() + timedelta(hours=2)
+        primary = make_stream(
+            status="disconnected",
+            lease_expires_at=datetime(2000, 1, 1),
+            first_streaming_started_at=datetime(2026, 5, 11, 21, 0),
+            end_time_live=end_time,
+        )
+        primary.backup_worker_id = "live-worker-backup"
+        primary.backup_worker_name = "62.146.169.230"
+        primary.backup_stream_id = "live-backup"
+        backup = make_stream(
+            status="streaming",
+            lease_expires_at=datetime.now() + timedelta(minutes=5),
+            first_streaming_started_at=datetime(2026, 5, 11, 21, 1),
+            end_time_live=end_time,
+        )
+        backup.id = "live-backup"
+        backup.primary_worker_id = "live-worker-backup"
+        backup.primary_worker_name = "62.146.169.230"
+        backup.runtime_role = "backup"
+        backup.is_runtime_clone = True
+        backup.parent_stream_id = primary.id
+        backup.claimed_by_worker_id = "live-worker-backup"
+        backup.claimed_by_role = "backup"
+        self.store.live_workers.append(make_live_worker("live-worker-backup"))
+        self.store.live_user_worker_links.append(
+            {"id": 2, "user_id": "user-1", "worker_id": "live-worker-backup", "threads": 1, "role": "backup"}
+        )
+        self.store.live_streams = [primary, backup]
+
+        self.assertFalse(
+            self.store._can_claim_live_stream(
+                primary,
+                worker_id="live-worker-01",
+                now=datetime.now(),
+            )
+        )
+        _, claimed = self.store.claim_next_live_stream(
+            "live-worker-01",
+            self.store.get_worker_shared_secret(),
+        )
+        self.assertIsNone(claimed)
+
+    def test_timed_primary_can_reclaim_if_backup_clone_is_not_active(self) -> None:
+        end_time = datetime.now() + timedelta(hours=2)
+        primary = make_stream(
+            status="disconnected",
+            lease_expires_at=datetime(2000, 1, 1),
+            first_streaming_started_at=datetime(2026, 5, 11, 21, 0),
+            end_time_live=end_time,
+        )
+        primary.backup_worker_id = "live-worker-backup"
+        primary.backup_stream_id = "live-backup"
+        backup = make_stream(
+            status="error",
+            lease_expires_at=datetime(2000, 1, 1),
+            first_streaming_started_at=datetime(2026, 5, 11, 21, 1),
+            end_time_live=end_time,
+        )
+        backup.id = "live-backup"
+        backup.primary_worker_id = "live-worker-backup"
+        backup.runtime_role = "backup"
+        backup.is_runtime_clone = True
+        backup.parent_stream_id = primary.id
+        backup.claimed_by_worker_id = None
+        backup.claimed_by_role = None
+        self.store.live_streams = [primary, backup]
+
+        self.assertTrue(
+            self.store._can_claim_live_stream(
+                primary,
+                worker_id="live-worker-01",
+                now=datetime.now(),
+            )
+        )
+
     def test_missing_heartbeat_after_scheduled_end_notifies_ended_not_disconnected(self) -> None:
         end_time = datetime(2026, 5, 12, 9, 30)
         reconcile_at = datetime(2026, 5, 12, 9, 31, 37)

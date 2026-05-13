@@ -5506,27 +5506,27 @@ class AppStore:
 
     @staticmethod
     def _live_progress_save_interval_seconds() -> int:
-        raw_value = str(os.getenv("LIVE_PROGRESS_SAVE_INTERVAL_SECONDS", "30")).strip()
+        raw_value = str(os.getenv("LIVE_PROGRESS_SAVE_INTERVAL_SECONDS", "120")).strip()
         try:
             return max(5, int(raw_value))
         except ValueError:
-            return 30
+            return 120
 
     @staticmethod
     def _live_worker_heartbeat_save_interval_seconds() -> int:
-        raw_value = str(os.getenv("LIVE_WORKER_HEARTBEAT_SAVE_INTERVAL_SECONDS", "30")).strip()
+        raw_value = str(os.getenv("LIVE_WORKER_HEARTBEAT_SAVE_INTERVAL_SECONDS", "300")).strip()
         try:
             return max(5, int(raw_value))
         except ValueError:
-            return 30
+            return 300
 
     @staticmethod
     def _worker_heartbeat_save_interval_seconds() -> int:
-        raw_value = str(os.getenv("WORKER_HEARTBEAT_SAVE_INTERVAL_SECONDS", "30")).strip()
+        raw_value = str(os.getenv("WORKER_HEARTBEAT_SAVE_INTERVAL_SECONDS", "300")).strip()
         try:
             return max(5, int(raw_value))
         except ValueError:
-            return 30
+            return 300
 
     def _live_runtime_retry_anchor(self, stream: LiveStreamRecord) -> datetime | None:
         return (

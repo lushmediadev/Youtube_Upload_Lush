@@ -79,6 +79,26 @@ class WorkerCleanupTests(unittest.TestCase):
             self.assertFalse(stale_dir.exists())
             self.assertTrue(fresh_dir.exists())
 
+    def test_cleanup_removes_live_state_dirs_after_retention(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            work_root = Path(temp_dir) / "worker-data"
+            stale_dir = work_root / "live-state" / "live-stale"
+            fresh_dir = work_root / "live-state" / "live-fresh"
+            stale_dir.mkdir(parents=True)
+            fresh_dir.mkdir(parents=True)
+            (stale_dir / "events.log").write_text("stale", encoding="utf-8")
+            (fresh_dir / "events.log").write_text("fresh", encoding="utf-8")
+            old = time.time() - (8 * 24 * 3600)
+            os.utime(stale_dir / "events.log", (old, old))
+            os.utime(stale_dir, (old, old))
+
+            with patch.dict(os.environ, {"WORKER_LIVE_STATE_RETENTION_HOURS": "168"}, clear=False):
+                result = cleanup_stale_worker_artifacts(make_config(work_root))
+
+            self.assertEqual(result["removed_live_state_dirs"], 1)
+            self.assertFalse(stale_dir.exists())
+            self.assertTrue(fresh_dir.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -219,6 +219,7 @@ class LiveStreamRecord(BaseModel):
     streaming_started_at: datetime | None = None
     first_streaming_started_at: datetime | None = None
     disconnected_at: datetime | None = None
+    telemetry_stale_at: datetime | None = None
     stop_requested_at: datetime | None = None
     ended_at: datetime | None = None
     created_at: datetime

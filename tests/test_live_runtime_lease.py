@@ -11,6 +11,7 @@ from backend.app.store import AppStore
 class TestableStore(AppStore):
     def __init__(self) -> None:
         self.live_notifications: list[tuple[list[str], str]] = []
+        self.telegram_notifications: list[tuple[list[str], str]] = []
         super().__init__()
 
     def _ensure_state_db(self) -> None:
@@ -36,6 +37,10 @@ class TestableStore(AppStore):
 
     def _notify_live_telegram_chat_ids(self, chat_ids: list[str], message: str) -> bool:
         self.live_notifications.append((chat_ids, message))
+        return True
+
+    def _notify_telegram_chat_ids(self, chat_ids: list[str], message: str) -> bool:
+        self.telegram_notifications.append((chat_ids, message))
         return True
 
 
@@ -397,6 +402,70 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.assertEqual(stream.log_label, "Mất telemetry")
         self.assertIn("Control-plane không nhận được telemetry", stream.status_message or "")
         self.assertEqual(self.store.live_notifications, [])
+
+    def test_primary_with_backup_fails_over_after_telemetry_timeout(self) -> None:
+        reconcile_at = datetime(2026, 5, 13, 16, 55)
+        self.store._process_started_at = reconcile_at - timedelta(hours=1)
+        self.store.users.append(UserSummary(id="admin-1", username="admin", display_name="admin", role="admin"))
+        self.store.user_meta["admin-1"] = {"telegram": "12345", "telegram_live": ""}
+        self.store.live_workers.append(make_live_worker("live-worker-backup"))
+        self.store.live_user_worker_links.append(
+            {"id": 2, "user_id": "user-1", "worker_id": "live-worker-backup", "threads": 1, "live_role": "backup"}
+        )
+        stream = make_stream(
+            status="streaming",
+            lease_expires_at=reconcile_at - timedelta(seconds=1),
+            first_streaming_started_at=datetime(2026, 5, 13, 16, 40),
+        )
+        stream.backup_worker_id = "live-worker-backup"
+        stream.backup_worker_name = "62.146.235.216"
+        stream.log_label = "Mất telemetry"
+        stream.status_message = "Không nhận telemetry từ live worker."
+        stream.telemetry_stale_at = reconcile_at - timedelta(seconds=181)
+        self.store.live_streams = [stream]
+
+        changed = self.store._reconcile_expired_live_streams(now=reconcile_at)
+
+        self.assertTrue(changed)
+        self.assertEqual(stream.status, "disconnected")
+        self.assertEqual(stream.log_label, "Mất kết nối")
+        self.assertIsNone(stream.claimed_by_worker_id)
+        self.assertIsNone(stream.lease_expires_at)
+        self.assertIsNone(stream.telemetry_stale_at)
+        self.assertEqual(len(self.store.telegram_notifications), 1)
+        self.assertIn("[LIVE] BOT live mất telemetry quá lâu", self.store.telegram_notifications[0][1])
+        backup_clone = self.store._find_live_backup_clone_optional(stream)
+        self.assertIsNotNone(backup_clone)
+        _, claimed = self.store.claim_next_live_stream(
+            "live-worker-backup",
+            self.store.get_worker_shared_secret(),
+        )
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, backup_clone.id)
+
+    def test_primary_without_backup_stays_stale_after_telemetry_timeout(self) -> None:
+        reconcile_at = datetime(2026, 5, 13, 16, 55)
+        stale_at = reconcile_at - timedelta(minutes=10)
+        self.store._process_started_at = reconcile_at - timedelta(hours=1)
+        stream = make_stream(
+            status="streaming",
+            lease_expires_at=reconcile_at - timedelta(seconds=1),
+            first_streaming_started_at=datetime(2026, 5, 13, 16, 40),
+        )
+        stream.log_label = "Mất telemetry"
+        stream.status_message = "Không nhận telemetry từ live worker."
+        stream.telemetry_stale_at = stale_at
+        self.store.live_streams = [stream]
+
+        changed = self.store._reconcile_expired_live_streams(now=reconcile_at)
+
+        self.assertTrue(changed)
+        self.assertEqual(stream.status, "streaming")
+        self.assertEqual(stream.claimed_by_worker_id, "live-worker-01")
+        self.assertIsNone(stream.disconnected_at)
+        self.assertEqual(stream.telemetry_stale_at, stale_at)
+        self.assertEqual(self.store.live_notifications, [])
+        self.assertEqual(self.store.telegram_notifications, [])
 
     def test_expired_backup_clone_telemetry_stale_does_not_turn_clone_error(self) -> None:
         reconcile_at = datetime(2026, 5, 13, 16, 55)

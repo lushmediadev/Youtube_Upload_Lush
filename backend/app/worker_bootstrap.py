@@ -418,6 +418,7 @@ def _build_worker_env_file(request: WorkerBootstrapRequest) -> str:
     youtube_upload_enabled = runtime_mode != "live"
     janitor_interval_seconds = 600 if runtime_mode == "live" else 3600
     live_stream_retention_hours = 1 if runtime_mode == "live" else 6
+    live_state_retention_hours = os.getenv("WORKER_LIVE_STATE_RETENTION_HOURS", "168").strip() or "168"
     return "\n".join(
         [
             f"CONTROL_PLANE_URL={request.control_plane_url}",
@@ -440,6 +441,7 @@ def _build_worker_env_file(request: WorkerBootstrapRequest) -> str:
             "WORKER_KEEP_JOB_DIRS=false",
             f"WORKER_JANITOR_INTERVAL_SECONDS={janitor_interval_seconds}",
             f"WORKER_LIVE_STREAM_RETENTION_HOURS={live_stream_retention_hours}",
+            f"WORKER_LIVE_STATE_RETENTION_HOURS={live_state_retention_hours}",
             f"WORKER_LIVE_NORMALIZE_ENABLED={os.getenv('WORKER_LIVE_NORMALIZE_ENABLED', 'false').strip() or 'false'}",
             f"WORKER_LIVE_NORMALIZE_CONCURRENCY={os.getenv('WORKER_LIVE_NORMALIZE_CONCURRENCY', '1').strip() or '1'}",
             f"WORKER_LIVE_NORMALIZE_THREADS={os.getenv('WORKER_LIVE_NORMALIZE_THREADS', '2').strip() or '2'}",

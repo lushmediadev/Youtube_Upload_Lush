@@ -107,6 +107,7 @@ def cleanup_stale_worker_artifacts(config: WorkerConfig) -> dict[str, int]:
         return {
             "removed_job_dirs": 0,
             "removed_live_stream_dirs": 0,
+            "removed_live_state_dirs": 0,
             "removed_output_files": 0,
             "removed_browser_upload_runtime_dirs": 0,
             "removed_browser_upload_download_dirs": 0,
@@ -118,6 +119,7 @@ def cleanup_stale_worker_artifacts(config: WorkerConfig) -> dict[str, int]:
         "WORKER_LIVE_STREAM_RETENTION_HOURS",
         1.0 if config.runtime_mode == "live" else temp_retention_hours,
     )
+    live_state_retention_hours = _read_env_float("WORKER_LIVE_STATE_RETENTION_HOURS", 168.0)
     output_retention_hours = _read_env_float(
         "WORKER_OUTPUT_RETENTION_HOURS",
         6.0 if config.youtube_upload_enabled else 48.0,
@@ -125,10 +127,12 @@ def cleanup_stale_worker_artifacts(config: WorkerConfig) -> dict[str, int]:
     now = time.time()
     temp_cutoff = now - (temp_retention_hours * 3600.0)
     live_stream_cutoff = now - (live_stream_retention_hours * 3600.0)
+    live_state_cutoff = now - (live_state_retention_hours * 3600.0)
     output_cutoff = now - (output_retention_hours * 3600.0)
 
     removed_job_dirs = 0
     removed_live_stream_dirs = 0
+    removed_live_state_dirs = 0
     removed_output_files = 0
     removed_browser_upload_runtime_dirs = 0
     removed_browser_upload_download_dirs = 0
@@ -151,6 +155,16 @@ def cleanup_stale_worker_artifacts(config: WorkerConfig) -> dict[str, int]:
                 continue
             if _safe_remove_tree(stream_dir):
                 removed_live_stream_dirs += 1
+
+    live_state_root = work_root / "live-state"
+    if live_state_root.exists():
+        for stream_state_dir in sorted(live_state_root.iterdir()):
+            if not stream_state_dir.is_dir():
+                continue
+            if not _is_older_than(stream_state_dir, cutoff_ts=live_state_cutoff):
+                continue
+            if _safe_remove_tree(stream_state_dir):
+                removed_live_state_dirs += 1
 
     browser_upload_runtime_root = work_root / "browser-upload-runtime"
     if browser_upload_runtime_root.exists():
@@ -186,6 +200,7 @@ def cleanup_stale_worker_artifacts(config: WorkerConfig) -> dict[str, int]:
     return {
         "removed_job_dirs": removed_job_dirs,
         "removed_live_stream_dirs": removed_live_stream_dirs,
+        "removed_live_state_dirs": removed_live_state_dirs,
         "removed_output_files": removed_output_files,
         "removed_browser_upload_runtime_dirs": removed_browser_upload_runtime_dirs,
         "removed_browser_upload_download_dirs": removed_browser_upload_download_dirs,

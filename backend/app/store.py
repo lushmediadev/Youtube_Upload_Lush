@@ -2772,6 +2772,23 @@ class AppStore:
             lines.append(f"Chi tiết: {normalized_reason}")
         return "\n".join(lines)
 
+    def _live_stream_telemetry_failover_message(
+        self,
+        stream: LiveStreamRecord,
+        *,
+        now: datetime,
+        stale_since_at: datetime | None,
+    ) -> str:
+        visible_stream = self._visible_live_stream_for_notification(stream)
+        lines = [
+            "[LIVE] BOT live mất telemetry quá lâu",
+            *self._live_notification_base_lines(visible_stream),
+            f"Mất telemetry từ: {self._format_full_datetime(stale_since_at)}",
+            f"Kích hoạt backup lúc: {self._format_full_datetime(now)}",
+            "Trạng thái: Control-plane không nhận heartbeat/progress đủ lâu nên chuyển sang backup để giữ luồng.",
+        ]
+        return "\n".join(lines)
+
     def _job_upload_interrupted_message(
         self,
         job: RenderJobRecord,
@@ -5460,6 +5477,14 @@ class AppStore:
         except ValueError:
             return 180
 
+    @staticmethod
+    def _live_telemetry_failover_seconds() -> int:
+        raw_value = str(os.getenv("LIVE_TELEMETRY_FAILOVER_SECONDS", "180")).strip()
+        try:
+            return max(60, int(raw_value))
+        except ValueError:
+            return 180
+
     def _live_runtime_retry_anchor(self, stream: LiveStreamRecord) -> datetime | None:
         return (
             stream.disconnected_at
@@ -5630,6 +5655,7 @@ class AppStore:
         stream.claimed_by_role = None
         stream.claimed_at = None
         stream.disconnected_at = None
+        stream.telemetry_stale_at = None
 
     @staticmethod
     def _live_stream_has_runtime_claim(stream: LiveStreamRecord) -> bool:
@@ -5847,6 +5873,7 @@ class AppStore:
         self._reset_live_stream_attempt_timeline(stream)
         stream.first_streaming_started_at = None
         stream.disconnected_at = None
+        stream.telemetry_stale_at = None
         stream.stop_requested_at = None
         stream.ended_at = None
         stream.updated_at = now
@@ -6073,11 +6100,15 @@ class AppStore:
         stream.claimed_by_role = None
         stream.claimed_at = None
         stream.lease_expires_at = None
+        stream.telemetry_stale_at = None
         stream.updated_at = now
         return notification_payload
 
     def _clear_live_stream_telemetry_stale(self, stream: LiveStreamRecord, *, now: datetime) -> bool:
         changed = False
+        if stream.telemetry_stale_at is not None:
+            stream.telemetry_stale_at = None
+            changed = True
         if str(stream.log_label or "").strip() == "Mất telemetry":
             stream.log_label = self._live_runtime_log_label(str(stream.status or ""))
             changed = True
@@ -6093,6 +6124,46 @@ class AppStore:
         return str(stream.log_label or "").strip() == "Mất telemetry" or (
             "telemetry" in str(stream.status_message or "").casefold()
         )
+
+    def _live_stream_telemetry_failover_ready(self, stream: LiveStreamRecord, *, now: datetime) -> bool:
+        if not self._is_visible_live_stream(stream):
+            return False
+        if not str(stream.backup_worker_id or "").strip():
+            return False
+        normalized_status = str(stream.status or "").strip().lower() or "scheduled"
+        if normalized_status not in self._live_worker_active_statuses():
+            return False
+        if self._live_stream_has_reached_schedule_end(stream, now=now):
+            return False
+        stale_at = stream.telemetry_stale_at
+        if stale_at is None:
+            return False
+        return stale_at + timedelta(seconds=self._live_telemetry_failover_seconds()) <= now
+
+    def _live_stream_telemetry_failover_recipient_chat_ids(self, stream: LiveStreamRecord) -> list[str]:
+        worker = self._find_live_worker_optional(stream.primary_worker_id)
+        if worker is None:
+            return self._all_admin_telegram_recipient_chat_ids()
+        return self._worker_alert_recipient_chat_ids(worker)
+
+    def _escalate_live_stream_telemetry_stale(
+        self,
+        stream: LiveStreamRecord,
+        *,
+        now: datetime,
+        reason: str,
+    ) -> tuple[bool, tuple[list[str], str] | None, tuple[list[str], str] | None]:
+        if not self._live_stream_telemetry_failover_ready(stream, now=now):
+            return False, None, None
+        stale_since_at = stream.telemetry_stale_at
+        live_notification = self._handle_interrupted_live_stream(stream, now=now, reason=reason)
+        ops_chat_ids = self._live_stream_telemetry_failover_recipient_chat_ids(stream)
+        ops_notification = (
+            (ops_chat_ids, self._live_stream_telemetry_failover_message(stream, now=now, stale_since_at=stale_since_at))
+            if ops_chat_ids
+            else None
+        )
+        return True, live_notification, ops_notification
 
     def _can_self_reclaim_telemetry_stale_live_stream(
         self,
@@ -6143,6 +6214,9 @@ class AppStore:
 
         message = (reason or "").strip() or "Control-plane không nhận được telemetry từ live worker."
         changed = False
+        if stream.telemetry_stale_at is None:
+            stream.telemetry_stale_at = now
+            changed = True
         if stream.log_label != "Mất telemetry":
             stream.log_label = "Mất telemetry"
             changed = True
@@ -6175,6 +6249,17 @@ class AppStore:
             if str(stream.status or "").strip().lower() not in self._live_worker_active_statuses():
                 continue
             if stream.lease_expires_at is not None and stream.lease_expires_at > now:
+                continue
+            escalated, live_notification, ops_notification = self._escalate_live_stream_telemetry_stale(
+                stream,
+                now=now,
+                reason="Control-plane không nhận telemetry từ live worker quá ngưỡng failover.",
+            )
+            if escalated:
+                if live_notification is not None:
+                    self._notify_live_telegram_chat_ids(live_notification[0], live_notification[1])
+                if ops_notification is not None:
+                    self._notify_telegram_chat_ids(ops_notification[0], ops_notification[1])
                 continue
             changed, notification_payload = self._mark_live_stream_telemetry_stale(
                 stream,
@@ -8535,6 +8620,18 @@ class AppStore:
             if not stream.claimed_by_worker_id:
                 continue
             if stream.lease_expires_at is None or stream.lease_expires_at > now:
+                continue
+            escalated, live_notification, ops_notification = self._escalate_live_stream_telemetry_stale(
+                stream,
+                now=now,
+                reason="Control-plane không nhận telemetry từ live worker quá ngưỡng failover.",
+            )
+            if escalated:
+                if live_notification is not None:
+                    self._notify_live_telegram_chat_ids(live_notification[0], live_notification[1])
+                if ops_notification is not None:
+                    self._notify_telegram_chat_ids(ops_notification[0], ops_notification[1])
+                changed = True
                 continue
             stream_changed, notification_payload = self._mark_live_stream_telemetry_stale(
                 stream,

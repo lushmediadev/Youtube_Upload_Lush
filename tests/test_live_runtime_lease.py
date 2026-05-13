@@ -12,6 +12,7 @@ class TestableStore(AppStore):
     def __init__(self) -> None:
         self.live_notifications: list[tuple[list[str], str]] = []
         self.telegram_notifications: list[tuple[list[str], str]] = []
+        self.save_calls = 0
         super().__init__()
 
     def _ensure_state_db(self) -> None:
@@ -33,7 +34,7 @@ class TestableStore(AppStore):
         return None
 
     def _save_state(self) -> None:
-        return None
+        self.save_calls += 1
 
     def _notify_live_telegram_chat_ids(self, chat_ids: list[str], message: str) -> bool:
         self.live_notifications.append((chat_ids, message))
@@ -101,6 +102,7 @@ def make_stream(
 class LiveRuntimeLeaseTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store = TestableStore()
+        self.store.save_calls = 0
         self.store.users = [UserSummary(id="user-1", username="user1", display_name="user1", role="user")]
         self.store.live_workers = [make_live_worker("live-worker-01")]
         self.store.live_user_worker_links = [
@@ -142,6 +144,37 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         refreshed_lease = self.store.live_streams[0].lease_expires_at
         self.assertIsNotNone(refreshed_lease)
         self.assertGreater(refreshed_lease, datetime.now() + timedelta(seconds=30))
+
+    def test_streaming_progress_throttles_state_persistence(self) -> None:
+        self.store.live_streams = [
+            make_stream(
+                status="streaming",
+                lease_expires_at=datetime.now() + timedelta(minutes=5),
+                first_streaming_started_at=datetime(2026, 5, 11, 21, 0),
+            )
+        ]
+
+        first = self.store.update_live_stream_progress(
+            stream_id="live-test",
+            worker_id="live-worker-01",
+            shared_secret=self.store.get_worker_shared_secret(),
+            status="streaming",
+            progress=50,
+            message="streaming",
+        )
+        second = self.store.update_live_stream_progress(
+            stream_id="live-test",
+            worker_id="live-worker-01",
+            shared_secret=self.store.get_worker_shared_secret(),
+            status="streaming",
+            progress=51,
+            message="streaming",
+        )
+
+        self.assertEqual(first.status, "streaming")
+        self.assertEqual(second.progress, 51)
+        self.assertEqual(self.store.live_streams[0].progress, 51)
+        self.assertEqual(self.store.save_calls, 1)
 
     def test_started_disconnected_stream_without_backup_can_be_reclaimed(self) -> None:
         self.store.live_streams = [

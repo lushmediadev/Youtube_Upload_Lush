@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/youtube-upload-lush
-ExecStart=/opt/youtube-upload-lush/.venv/bin/python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/youtube-upload-lush/.venv/bin/python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --no-access-log
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

@@ -409,6 +409,7 @@ class AppStore:
         self.telegram_link_requests: dict[str, dict[str, Any]] = {}
         self.live_telegram_link_requests: dict[str, dict[str, Any]] = {}
         self.admin_notifications: list[dict[str, Any]] = []
+        self._live_progress_last_saved_at: dict[str, datetime] = {}
         self._worker_state_lock = RLock()
         self._monitor_stop_event = Event()
         self._monitor_thread: Thread | None = None
@@ -5485,6 +5486,14 @@ class AppStore:
         except ValueError:
             return 180
 
+    @staticmethod
+    def _live_progress_save_interval_seconds() -> int:
+        raw_value = str(os.getenv("LIVE_PROGRESS_SAVE_INTERVAL_SECONDS", "30")).strip()
+        try:
+            return max(5, int(raw_value))
+        except ValueError:
+            return 30
+
     def _live_runtime_retry_anchor(self, stream: LiveStreamRecord) -> datetime | None:
         return (
             stream.disconnected_at
@@ -6631,6 +6640,26 @@ class AppStore:
             return "Mất kết nối"
         return "Khởi tạo"
 
+    def _should_persist_live_progress_update(
+        self,
+        stream: LiveStreamRecord,
+        *,
+        previous_status: str,
+        normalized_status: str,
+        now: datetime,
+        had_telemetry_stale: bool,
+    ) -> bool:
+        if had_telemetry_stale:
+            return True
+        if previous_status != normalized_status:
+            return True
+        if normalized_status != "streaming":
+            return True
+        last_saved_at = self._live_progress_last_saved_at.get(stream.id)
+        if last_saved_at is None:
+            return True
+        return last_saved_at + timedelta(seconds=self._live_progress_save_interval_seconds()) <= now
+
     def update_live_stream_progress(
         self,
         *,
@@ -6649,6 +6678,7 @@ class AppStore:
             self._ensure_live_stream_can_continue(stream)
             now = self._now(trim=False)
             previous_status = str(stream.status or "").strip().lower() or "scheduled"
+            had_telemetry_stale = stream.telemetry_stale_at is not None or self._live_stream_has_telemetry_stale_marker(stream)
 
             normalized_status = str(status or "").strip().lower() or "scheduled"
             bounded_progress = max(0, min(100, int(progress)))
@@ -6660,6 +6690,7 @@ class AppStore:
             stream.status_message = (message or "").strip() or None
             stream.log_label = self._live_runtime_log_label(normalized_status)
             stream.error_message = None
+            stream.telemetry_stale_at = None
             stream.updated_at = now
 
             if normalized_status == "downloading" and stream.download_started_at is None:
@@ -6700,7 +6731,16 @@ class AppStore:
             self._refresh_live_stream_leases(worker_id, now, stream_ids=[stream.id])
             self._sync_live_backup_policy(now=now)
             self._sync_live_worker_runtime_status(worker)
-            self._save_state()
+            should_save_state = self._should_persist_live_progress_update(
+                stream,
+                previous_status=previous_status,
+                normalized_status=normalized_status,
+                now=now,
+                had_telemetry_stale=had_telemetry_stale,
+            )
+            if should_save_state:
+                self._save_state()
+                self._live_progress_last_saved_at[stream.id] = now
             snapshot = deepcopy(stream)
         if notification_message and notification_chat_ids:
             self._notify_live_telegram_chat_ids(notification_chat_ids, notification_message)

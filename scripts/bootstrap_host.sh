@@ -26,7 +26,7 @@ render_systemd_service() {
     printf '%s\n' '[Service]'
     printf '%s\n' 'Type=simple'
     printf 'WorkingDirectory=%s\n' "$APP_DIR"
-    printf 'ExecStart=%s/.venv/bin/python -m uvicorn backend.app.main:app --host 0.0.0.0 --port %s\n' "$APP_DIR" "$service_port"
+    printf 'ExecStart=%s/.venv/bin/python -m uvicorn backend.app.main:app --host 0.0.0.0 --port %s --no-access-log\n' "$APP_DIR" "$service_port"
     printf '%s\n' 'Restart=always'
     printf '%s\n' 'RestartSec=5'
     printf '%s\n' 'Environment=PYTHONUNBUFFERED=1'

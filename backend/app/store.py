@@ -6160,13 +6160,14 @@ class AppStore:
             resolved_group = self._normalized_bot_group(
                 install_task_group or str(payload.group or "").strip()
             )
+            granted_threads_total = self._live_worker_total_granted_threads(payload.worker_id)
             normalized_capacity = self._normalize_live_worker_threads(
-                (
-                    existing.capacity
-                    if existing is not None and int(existing.capacity or 0) > 0
-                    else payload.capacity
+                max(
+                    int(existing.capacity or 0) if existing is not None else 0,
+                    int(payload.capacity or 0),
+                    granted_threads_total,
+                    1,
                 )
-                or self._fixed_live_worker_thread_limit()
             )
             if existing is None:
                 worker = WorkerRecord(
@@ -6297,8 +6298,14 @@ class AppStore:
             worker.bandwidth_kbps = payload.bandwidth_kbps
             worker.disk_used_gb = payload.disk_used_gb
             worker.disk_total_gb = payload.disk_total_gb or worker.disk_total_gb
+            granted_threads_total = self._live_worker_total_granted_threads(worker.id)
             normalized_capacity = self._normalize_live_worker_threads(
-                worker.capacity or payload.capacity or self._fixed_live_worker_thread_limit()
+                max(
+                    int(worker.capacity or 0),
+                    int(payload.capacity or 0),
+                    granted_threads_total,
+                    1,
+                )
             )
             worker.threads = normalized_capacity
             worker.capacity = normalized_capacity
@@ -9069,16 +9076,12 @@ class AppStore:
             raise ValueError("Delay backup không được âm.")
         return delay_minutes
 
-    @staticmethod
-    def _fixed_live_worker_thread_limit() -> int:
-        return 5
-
     def _normalize_live_worker_threads(self, requested_threads: int | str | None) -> int:
         try:
             requested = int(requested_threads if requested_threads is not None else 1)
         except (TypeError, ValueError):
             requested = 1
-        return max(1, min(self._fixed_live_worker_thread_limit(), requested))
+        return max(1, requested)
 
     def _live_link_allocated_threads(self, link: dict[str, Any]) -> int:
         return self._normalize_live_worker_threads(
@@ -9125,14 +9128,15 @@ class AppStore:
             worker = self._find_live_worker_optional(worker_id)
             if worker is not None:
                 return self._effective_live_worker_thread_limit(worker)
-            return self._fixed_live_worker_thread_limit()
+            return 1
         if len(allocations) == 1:
             return next(iter(allocations))
         return max(allocations)
 
     def _effective_live_worker_thread_limit(self, worker: WorkerRecord) -> int:
-        configured = int(worker.capacity or self._fixed_live_worker_thread_limit())
-        return self._normalize_live_worker_threads(configured)
+        configured = max(1, int(worker.capacity or worker.threads or 1))
+        granted_total = self._live_worker_total_granted_threads(worker.id)
+        return self._normalize_live_worker_threads(max(configured, granted_total or 1))
 
     def _overlapping_visible_live_streams(
         self,
@@ -11323,7 +11327,7 @@ class AppStore:
             if str(value).strip()
         ]
         granted_threads_total = requested_threads * len(assigned_user_ids) if workspace_kind == "live" else 0
-        max_threads = self._fixed_live_worker_thread_limit() if workspace_kind == "live" else requested_threads
+        max_threads = max(requested_threads, granted_threads_total, 1) if workspace_kind == "live" else requested_threads
         is_backup_live_bot = workspace_kind == "live" and bot_function_key == "backup"
         workload_text = (
             f"0/0/{granted_threads_total}"
@@ -12463,7 +12467,7 @@ class AppStore:
         normalized_name = str(name or "").strip()
         if not normalized_name:
             raise ValueError("Tên BOT là bắt buộc.")
-        normalized_capacity = self._fixed_live_worker_thread_limit()
+        normalized_capacity = self._normalize_live_worker_threads(threads or 1)
         manager: UserSummary | None = None
         if manager_id:
             manager = self._find_user(manager_id)
@@ -12567,6 +12571,7 @@ class AppStore:
             (self.worker_connection_profiles.get(worker.id) or {}).get("password") or ""
         ).strip()
         password_changed = bool(normalized_password) and normalized_password != existing_connection_password
+        next_worker_capacity = self._effective_live_worker_thread_limit(worker)
         normalized_user_id = str(assigned_user_id or "").strip()
         normalized_user_ids: list[str] = []
         seen_user_ids: set[str] = set()
@@ -12715,13 +12720,11 @@ class AppStore:
                     )
                     + (normalized_threads * len(new_selected_user_ids))
                 )
-            worker_capacity = self._effective_live_worker_thread_limit(worker)
-            if assignment_changed and projected_total_allocated_threads > worker_capacity:
-                raise ValueError(
-                    f"BOT {self._resolve_live_worker_display_name(worker.id)} chỉ có trần {worker_capacity} luồng, "
-                    f"nhưng cấu hình hiện tại đang cấp phát tổng cộng {projected_total_allocated_threads} luồng "
-                    f"cho {len(selected_user_id_set)} user."
-                )
+            next_worker_capacity = max(
+                self._effective_live_worker_thread_limit(worker),
+                projected_total_allocated_threads,
+                normalized_threads,
+            )
             next_id = max([self._mapping_numeric_id(item.get("id")) for item in next_live_user_worker_links], default=0) + 1
             for assigned_user in selected_users:
                 existing_link = current_links_by_user_id.get(assigned_user.id)
@@ -12772,7 +12775,8 @@ class AppStore:
             worker.live_role = normalized_live_role
         self._apply_live_worker_manager(worker, manager)
         worker.group = normalized_group
-        worker.capacity = self._effective_live_worker_thread_limit(worker)
+        total_allocated_threads = self._live_worker_allocated_threads(worker.id)
+        worker.capacity = self._normalize_live_worker_threads(max(next_worker_capacity, total_allocated_threads, normalized_threads))
         worker.threads = worker.capacity
         self.live_user_worker_links = next_live_user_worker_links
         if next_live_streams is not self.live_streams:
@@ -12874,11 +12878,7 @@ class AppStore:
                 if str(link.get("worker_id") or "").strip() == worker.id
             ]
         )
-        if normalized_threads * worker_link_count > worker_capacity:
-            raise ValueError(
-                f"BOT {self._resolve_live_worker_display_name(worker.id)} đang vượt trần "
-                f"{normalized_threads * worker_link_count}/{worker_capacity} luồng."
-            )
+        worker_capacity = max(worker_capacity, normalized_threads * worker_link_count, normalized_threads)
         next_live_user_worker_links = [dict(link) for link in self.live_user_worker_links]
         for link in next_live_user_worker_links:
             if str(link.get("worker_id") or "").strip() != worker.id:

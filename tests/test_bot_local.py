@@ -138,6 +138,55 @@ class BotLocalTests(unittest.TestCase):
         self.assertEqual(rows[0]["bot_type_label"], "Backup")
         self.assertEqual(rows[0]["assigned_live_role"], "backup")
 
+    def test_live_bot_update_allows_quota_above_previous_five_thread_ceiling(self) -> None:
+        self.store.workers = []
+        self.store.live_workers = [make_worker("live-worker-01").model_copy(update={"capacity": 5, "threads": 5})]
+        self.store.users = [
+            UserSummary(id="manager-1", username="manager", display_name="manager", role="manager"),
+            UserSummary(
+                id="user-1",
+                username="user1",
+                display_name="user1",
+                role="user",
+                manager_id="manager-1",
+                manager_name="manager",
+            ),
+            UserSummary(
+                id="user-2",
+                username="user2",
+                display_name="user2",
+                role="user",
+                manager_id="manager-1",
+                manager_name="manager",
+            ),
+        ]
+
+        self.store.update_bot(
+            "live-worker-01",
+            "62.146.169.168",
+            "US-west",
+            "workers",
+            "manager-1",
+            workspace_mode="live",
+            live_role="backup",
+            threads=6,
+            assigned_user_ids=["user-1", "user-2"],
+            viewer_role="admin",
+            viewer_id="admin-1",
+            updated_by="admin",
+        )
+
+        self.assertEqual(self.store.live_workers[0].capacity, 12)
+        self.assertEqual(self.store.live_workers[0].threads, 12)
+        self.assertEqual(
+            sorted(
+                link["allocated_threads"]
+                for link in self.store.live_user_worker_links
+                if link["worker_id"] == "live-worker-01"
+            ),
+            [6, 6],
+        )
+
     def test_live_bot_role_change_notifies_admin_and_owner_manager(self) -> None:
         self.store.users = [
             UserSummary(id="admin-1", username="admin", display_name="admin", role="admin"),

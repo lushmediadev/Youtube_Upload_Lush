@@ -263,12 +263,6 @@ def _start_bot_workspace_conversion(
             raise ValueError("Chức năng BOT live không hợp lệ.")
         if assigned_user_ids and not desired_live_role:
             raise ValueError("Hãy chọn chức năng BOT live trước khi gán user.")
-        if assigned_user_ids and desired_threads * len(assigned_user_ids) > store._fixed_live_worker_thread_limit():
-            raise ValueError(
-                f"BOT live mới chỉ có trần {store._fixed_live_worker_thread_limit()} luồng, "
-                f"nhưng cấu hình hiện tại đang cấp phát {desired_threads * len(assigned_user_ids)} luồng "
-                f"cho {len(assigned_user_ids)} user."
-            )
     else:
         desired_live_role = "upload"
 
@@ -303,7 +297,9 @@ def _start_bot_workspace_conversion(
         runtime_mode=resolved_target_workspace_mode,
     )
     bootstrap_request.capacity = (
-        store._fixed_live_worker_thread_limit() if resolved_target_workspace_mode == "live" else 1
+        max(desired_threads, desired_threads * max(1, len(assigned_user_ids)))
+        if resolved_target_workspace_mode == "live"
+        else 1
     )
     bootstrap_request.threads = bootstrap_request.capacity
     return start_worker_install_operation(
@@ -642,15 +638,6 @@ async def install_admin_bot(request: Request, payload: AdminBotInstallPayload):
             raise HTTPException(status_code=400, detail="Chức năng BOT live không hợp lệ.")
         if requested_user_ids and not requested_live_role:
             raise HTTPException(status_code=400, detail="Hãy chọn chức năng BOT live trước khi gán user.")
-        if requested_user_ids and requested_threads * len(requested_user_ids) > store._fixed_live_worker_thread_limit():
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"BOT live mới chỉ có trần {store._fixed_live_worker_thread_limit()} luồng, "
-                    f"nhưng cấu hình hiện tại đang cấp phát {requested_threads * len(requested_user_ids)} luồng "
-                    f"cho {len(requested_user_ids)} user."
-                ),
-            )
     else:
         requested_live_role = "upload"
     for user_id in requested_user_ids:
@@ -689,8 +676,12 @@ async def install_admin_bot(request: Request, payload: AdminBotInstallPayload):
             manager_name=manager_name,
             runtime_mode=workspace_mode,
         )
-        bootstrap_request.capacity = store._fixed_live_worker_thread_limit() if workspace_mode == "live" else requested_threads
-        bootstrap_request.threads = store._fixed_live_worker_thread_limit() if workspace_mode == "live" else requested_threads
+        bootstrap_request.capacity = (
+            max(requested_threads, requested_threads * max(1, len(requested_user_ids)))
+            if workspace_mode == "live"
+            else requested_threads
+        )
+        bootstrap_request.threads = bootstrap_request.capacity
         task = start_worker_install_operation(
             store=store,
             request=bootstrap_request,

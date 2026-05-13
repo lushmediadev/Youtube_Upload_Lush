@@ -542,12 +542,11 @@
                         name="threads"
                         type="number"
                         min="1"
-                        max="5"
                         step="1"
-                        value="5"
+                        value="1"
                         inputmode="numeric"
                     >
-                    <p class="mt-1 text-[11px] text-slate-500" data-create-bot-thread-help>S&#7889; lu&#7891;ng &#225;p cho m&#7895;i user tr&#234;n BOT live/backup. T&#7889;i &#273;a 5 lu&#7891;ng tr&#234;n 1 VPS.</p>
+                    <p class="mt-1 text-[11px] text-slate-500" data-create-bot-thread-help>S&#7889; lu&#7891;ng &#225;p cho m&#7895;i user tr&#234;n BOT live/backup. H&#7879; th&#7889;ng kh&#244;ng &#225;p tr&#7847;n c&#7913;ng cho VPS n&#224;y.</p>
                 </div>
                 <div>
                     <label class="field-label" for="create-bot-local">Local</label>
@@ -736,12 +735,11 @@
                         name="Threads"
                         type="number"
                         min="1"
-                        max="5"
                         step="1"
                         value="1"
                         inputmode="numeric"
                     >
-                    <p class="mt-1 text-[11px] text-slate-500" data-edit-bot-thread-help>N&#7871;u BOT &#273;&#227; c&#243; s&#7861;n user, s&#7889; lu&#7891;ng n&#224;y ch&#7881; &#225;p cho user m&#7899;i th&#234;m v&#224;o. N&#7871;u kh&#244;ng th&#234;m user m&#7899;i, h&#7879; th&#7889;ng s&#7869; c&#7853;p nh&#7853;t &#273;&#7891;ng lo&#7841;t s&#7889; lu&#7891;ng cho nh&#243;m user &#273;ang ch&#7885;n. T&#7893;ng c&#7845;p ph&#225;t tr&#234;n VPS kh&#244;ng &#273;&#432;&#7907;c v&#432;&#7907;t 5 lu&#7891;ng, v&#224; kh&#244;ng th&#7875; h&#7841; quota xu&#7889;ng th&#7845;p h&#417;n s&#7889; lu&#7891;ng active hi&#7879;n t&#7841;i.</p>
+                    <p class="mt-1 text-[11px] text-slate-500" data-edit-bot-thread-help>N&#7871;u BOT &#273;&#227; c&#243; s&#7861;n user, s&#7889; lu&#7891;ng n&#224;y ch&#7881; &#225;p cho user m&#7899;i th&#234;m v&#224;o. N&#7871;u kh&#244;ng th&#234;m user m&#7899;i, h&#7879; th&#7889;ng s&#7869; c&#7853;p nh&#7853;t &#273;&#7891;ng lo&#7841;t s&#7889; lu&#7891;ng cho nh&#243;m user &#273;ang ch&#7885;n. H&#7879; th&#7889;ng kh&#244;ng c&#242;n &#225;p tr&#7847;n c&#7913;ng 5 lu&#7891;ng, nh&#432;ng v&#7851;n kh&#244;ng th&#7875; h&#7841; quota xu&#7889;ng th&#7845;p h&#417;n s&#7889; lu&#7891;ng active hi&#7879;n t&#7841;i.</p>
                 </div>
                 <div>
                     <label class="field-label" for="edit-bot-user-picker-button">Users</label>
@@ -855,7 +853,6 @@
     const createBotRoleHelp = document.querySelector('[data-create-bot-role-help]');
     const createBotTitle = document.querySelector('[data-create-bot-title]');
     const createBotDescription = document.querySelector('[data-create-bot-description]');
-    const MAX_LIVE_BOT_THREADS = 5;
     const pollMs = 3000;
     const recentNotices = new Map();
     const createBotDefaults = {
@@ -1044,7 +1041,7 @@
       if (!Number.isFinite(parsed)) {
         return 1;
       }
-      return Math.max(1, Math.min(MAX_LIVE_BOT_THREADS, parsed));
+      return Math.max(1, parsed);
     }
 
     function syncEnhancedSelectValue(select, nextValue) {
@@ -1168,7 +1165,7 @@
         createBotThreadInput.required = isLiveWorkspace;
       }
       if (createBotThreadHelp) {
-        createBotThreadHelp.textContent = 'S\u1ed1 lu\u1ed3ng \u00e1p cho m\u1ed7i user tr\u00ean BOT live/backup. T\u1ed1i \u0111a ' + String(MAX_LIVE_BOT_THREADS) + ' lu\u1ed3ng tr\u00ean 1 VPS.';
+        createBotThreadHelp.textContent = 'S\u1ed1 lu\u1ed3ng \u00e1p cho m\u1ed7i user tr\u00ean BOT live/backup. H\u1ec7 th\u1ed1ng kh\u00f4ng \u00e1p tr\u1ea7n c\u1ee9ng cho VPS n\u00e0y.';
       }
     }
 
@@ -1712,7 +1709,7 @@
         editBotThreadInput.required = workspaceKind === 'live';
       }
       if (editBotThreadHelp) {
-        editBotThreadHelp.textContent = 'N\u1ebfu BOT \u0111\u00e3 c\u00f3 s\u1eb5n user, s\u1ed1 lu\u1ed3ng n\u00e0y ch\u1ec9 \u00e1p cho user m\u1edbi th\u00eam v\u00e0o. N\u1ebfu kh\u00f4ng th\u00eam user m\u1edbi, h\u1ec7 th\u1ed1ng s\u1ebd c\u1eadp nh\u1eadt \u0111\u1ed3ng lo\u1ea1t s\u1ed1 lu\u1ed3ng cho nh\u00f3m user \u0111ang ch\u1ecdn. T\u1ed5ng c\u1ea5p ph\u00e1t tr\u00ean VPS kh\u00f4ng \u0111\u01b0\u1ee3c v\u01b0\u1ee3t ' + String(MAX_LIVE_BOT_THREADS) + ' lu\u1ed3ng, v\u00e0 kh\u00f4ng th\u1ec3 h\u1ea1 quota xu\u1ed1ng th\u1ea5p h\u01a1n s\u1ed1 lu\u1ed3ng active hi\u1ec7n t\u1ea1i.';
+        editBotThreadHelp.textContent = 'N\u1ebfu BOT \u0111\u00e3 c\u00f3 s\u1eb5n user, s\u1ed1 lu\u1ed3ng n\u00e0y ch\u1ec9 \u00e1p cho user m\u1edbi th\u00eam v\u00e0o. N\u1ebfu kh\u00f4ng th\u00eam user m\u1edbi, h\u1ec7 th\u1ed1ng s\u1ebd c\u1eadp nh\u1eadt \u0111\u1ed3ng lo\u1ea1t s\u1ed1 lu\u1ed3ng cho nh\u00f3m user \u0111ang ch\u1ecdn. H\u1ec7 th\u1ed1ng kh\u00f4ng c\u00f2n \u00e1p tr\u1ea7n c\u1ee9ng 5 lu\u1ed3ng, nh\u01b0ng v\u1eabn kh\u00f4ng th\u1ec3 h\u1ea1 quota xu\u1ed1ng th\u1ea5p h\u01a1n s\u1ed1 lu\u1ed3ng active hi\u1ec7n t\u1ea1i.';
       }
       if (editBotUserPickerHelp) {
         editBotUserPickerHelp.textContent = workspaceKind === 'live'

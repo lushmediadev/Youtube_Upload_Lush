@@ -6713,7 +6713,8 @@ class AppStore:
             return True
         last_saved_at = self._live_progress_last_saved_at.get(stream.id)
         if last_saved_at is None:
-            return True
+            self._live_progress_last_saved_at[stream.id] = now
+            return False
         return last_saved_at + timedelta(seconds=self._live_progress_save_interval_seconds()) <= now
 
     def _should_persist_live_worker_heartbeat(
@@ -6732,7 +6733,8 @@ class AppStore:
             return True
         last_saved_at = self._live_worker_heartbeat_last_saved_at.get(worker.id)
         if last_saved_at is None:
-            return True
+            self._live_worker_heartbeat_last_saved_at[worker.id] = now
+            return False
         return last_saved_at + timedelta(seconds=self._live_worker_heartbeat_save_interval_seconds()) <= now
 
     def _should_persist_worker_heartbeat(
@@ -6751,7 +6753,8 @@ class AppStore:
             return True
         last_saved_at = self._worker_heartbeat_last_saved_at.get(worker.id)
         if last_saved_at is None:
-            return True
+            self._worker_heartbeat_last_saved_at[worker.id] = now
+            return False
         return last_saved_at + timedelta(seconds=self._worker_heartbeat_save_interval_seconds()) <= now
 
     def update_live_stream_progress(

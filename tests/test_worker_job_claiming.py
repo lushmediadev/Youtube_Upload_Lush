@@ -271,7 +271,7 @@ class WorkerJobClaimingTests(unittest.TestCase):
         self.store.heartbeat_worker(payload)
 
         self.assertEqual(self.store.workers[0].load_percent, 5)
-        self.assertEqual(self.store.save_calls, 1)
+        self.assertEqual(self.store.save_calls, 0)
 
 
 if __name__ == "__main__":

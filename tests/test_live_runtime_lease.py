@@ -174,7 +174,7 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.assertEqual(first.status, "streaming")
         self.assertEqual(second.progress, 51)
         self.assertEqual(self.store.live_streams[0].progress, 51)
-        self.assertEqual(self.store.save_calls, 1)
+        self.assertEqual(self.store.save_calls, 0)
 
     def test_live_worker_heartbeat_throttles_state_persistence(self) -> None:
         payload = type(
@@ -202,7 +202,7 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.store.heartbeat_live_worker(payload)
 
         self.assertEqual(self.store.live_workers[0].load_percent, 5)
-        self.assertEqual(self.store.save_calls, 1)
+        self.assertEqual(self.store.save_calls, 0)
 
     def test_noop_live_claim_does_not_persist_state(self) -> None:
         _worker, claimed = self.store.claim_next_live_stream(

@@ -454,6 +454,28 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.assertIsNone(stream.status_message)
         self.assertGreater(stream.lease_expires_at, heartbeat_at)
 
+    def test_same_worker_can_reclaim_telemetry_stale_stream_after_restart(self) -> None:
+        now = self.store._now(trim=False)
+        stream = make_stream(
+            status="streaming",
+            lease_expires_at=now + timedelta(seconds=120),
+            first_streaming_started_at=now - timedelta(minutes=5),
+        )
+        stream.log_label = "Mất telemetry"
+        stream.status_message = "Không nhận telemetry từ live worker."
+        self.store.live_streams = [stream]
+
+        _worker, claimed = self.store.claim_next_live_stream(
+            "live-worker-01",
+            self.store.get_worker_shared_secret(),
+        )
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, stream.id)
+        refreshed = self.store.live_streams[0]
+        self.assertEqual(refreshed.claimed_by_worker_id, "live-worker-01")
+        self.assertGreater(refreshed.lease_expires_at, now)
+
     def test_editing_downloading_or_preparing_live_is_locked(self) -> None:
         for status in ("downloading", "preparing"):
             with self.subTest(status=status):

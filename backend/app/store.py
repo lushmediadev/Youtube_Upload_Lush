@@ -6088,6 +6088,37 @@ class AppStore:
             stream.updated_at = now
         return changed
 
+    @staticmethod
+    def _live_stream_has_telemetry_stale_marker(stream: LiveStreamRecord) -> bool:
+        return str(stream.log_label or "").strip() == "Mất telemetry" or (
+            "telemetry" in str(stream.status_message or "").casefold()
+        )
+
+    def _can_self_reclaim_telemetry_stale_live_stream(
+        self,
+        stream: LiveStreamRecord,
+        *,
+        worker_id: str,
+        now: datetime,
+    ) -> bool:
+        if str(stream.claimed_by_worker_id or "").strip() != str(worker_id or "").strip():
+            return False
+        if not self._live_stream_has_telemetry_stale_marker(stream):
+            return False
+        normalized_status = str(stream.status or "").strip().lower() or "scheduled"
+        if normalized_status not in self._live_worker_active_statuses():
+            return False
+        visible_stream = self._visible_live_stream_for_runtime(stream)
+        if self._live_stream_has_reached_schedule_end(visible_stream, now=now):
+            return False
+        runtime_role = self._live_runtime_role(stream)
+        allocated_threads = self._live_user_worker_allocated_threads(
+            visible_stream.owner_user_id,
+            worker_id,
+            role=runtime_role,
+        )
+        return allocated_threads >= 1
+
     def _mark_live_stream_telemetry_stale(
         self,
         stream: LiveStreamRecord,
@@ -6431,6 +6462,24 @@ class AppStore:
             now = self._now(trim=False)
             self._sync_live_backup_policy(now=now)
             max_threads = self._effective_live_worker_thread_limit(worker)
+            self_reclaim_candidates = [
+                stream
+                for stream in self.live_streams
+                if stream.primary_worker_id == worker.id
+                and self._can_self_reclaim_telemetry_stale_live_stream(stream, worker_id=worker_id, now=now)
+            ]
+            if self_reclaim_candidates:
+                stream = sorted(self_reclaim_candidates, key=self._live_stream_claim_sort_key)[0]
+                self._reset_live_stream_attempt_timeline(stream)
+                stream.claimed_by_worker_id = worker.id
+                stream.claimed_by_role = stream.runtime_role or "primary"
+                stream.claimed_at = now
+                stream.lease_expires_at = now + timedelta(seconds=self._live_stream_lease_seconds(stream))
+                stream.updated_at = now
+                self._sync_live_worker_runtime_status(worker)
+                self._save_state()
+                return deepcopy(worker), deepcopy(stream)
+
             if self._count_live_worker_reserved_streams(worker, now=now) >= max_threads:
                 self._sync_live_worker_runtime_status(worker)
                 self._save_state()

@@ -33,6 +33,7 @@
 ## Invariants
 - Worker la outbound-only; control plane khong push stateful browser runtime vao chinh no.
 - Live worker la local supervisor cho ffmpeg/live runtime; control-plane miss heartbeat/lease chi la telemetry stale, khong phai bang chung runtime da chet.
+- Stream live co marker `Mất telemetry` chi duoc self-reclaim boi dung worker dang giu claim; worker khac khong duoc dung marker nay de cuop runtime.
 - Browser session va upload browser phai bam theo worker/VPS so huu.
 - Cleanup profile/channel stale phai do worker thuc hien tren may cua no.
 

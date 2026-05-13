@@ -270,6 +270,21 @@ class AppStore:
         return max(60, value)
 
     @staticmethod
+    def _control_plane_startup_grace_seconds() -> int:
+        raw_value = str(os.getenv("CONTROL_PLANE_STARTUP_GRACE_SECONDS", "120")).strip()
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            value = 120
+        return max(0, value)
+
+    def _is_within_control_plane_startup_grace(self, *, now: datetime) -> bool:
+        grace_seconds = self._control_plane_startup_grace_seconds()
+        if grace_seconds <= 0:
+            return False
+        return now < (self._process_started_at + timedelta(seconds=grace_seconds))
+
+    @staticmethod
     def _worker_monitor_interval_seconds() -> int:
         raw_value = str(os.getenv("WORKER_MONITOR_INTERVAL_SECONDS", "30")).strip()
         try:
@@ -369,6 +384,7 @@ class AppStore:
 
     def __init__(self) -> None:
         now = self._now()
+        self._process_started_at = self._now(trim=False)
         live_demo_seed_enabled = self._live_demo_seed_enabled()
         self.data_dir = Path(__file__).resolve().parents[1] / "data"
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -3522,6 +3538,8 @@ class AppStore:
         return self._worker_alert_recipient_chat_ids(worker), message
 
     def _reconcile_worker_connectivity(self, *, now: datetime) -> bool:
+        if self._is_within_control_plane_startup_grace(now=now):
+            return False
         changed = False
         alert_seconds = self._worker_offline_alert_seconds()
         stale_cutoff = timedelta(seconds=alert_seconds)
@@ -3560,6 +3578,8 @@ class AppStore:
         return changed
 
     def _reconcile_live_worker_connectivity(self, *, now: datetime) -> bool:
+        if self._is_within_control_plane_startup_grace(now=now):
+            return False
         changed = False
         alert_seconds = self._worker_offline_alert_seconds()
         stale_cutoff = timedelta(seconds=alert_seconds)
@@ -8380,6 +8400,8 @@ class AppStore:
         return None
 
     def _reconcile_expired_worker_jobs(self, *, now: datetime) -> tuple[bool, list[tuple[list[str], str]]]:
+        if self._is_within_control_plane_startup_grace(now=now):
+            return False, []
         changed = False
         notifications: list[tuple[list[str], str]] = []
         active_statuses = self._worker_active_job_statuses()
@@ -8404,6 +8426,8 @@ class AppStore:
         return changed, notifications
 
     def _reconcile_expired_live_streams(self, *, now: datetime) -> bool:
+        if self._is_within_control_plane_startup_grace(now=now):
+            return False
         changed = False
         active_statuses = self._live_worker_active_statuses()
         for stream in self.live_streams:

@@ -55,6 +55,7 @@
 | DEC-048 | Production deploy target cua repo nay la `109.123.227.253`; `82.197.71.6` chi la host lich su/stale va khong duoc dung cho rollout moi | Active | infra deploy + ops safety | High |
 | DEC-049 | Worker bootstrap phai disable unattended apt upgrades/apt-daily timers de tranh OS auto-upgrade restart worker giua upload/live job | Active | worker bootstrap + VPS ops | High |
 | DEC-050 | Xoa BOT phai uu tien SSH cleanup, nhung neu control-plane khong ket noi duoc VPS thi duoc phep xoa record local de xu ly VPS het han/disconnected | Active | worker decommission + admin ops | High |
+| DEC-051 | Control-plane vua restart khong duoc expire worker/live qua som; monitor phai co startup grace truoc khi danh offline/disconnected/error tu heartbeat lease | Active | control-plane runtime resilience | High |
 
 ## Notes
 - `docs/DECISIONS.md` van giu full history va ly do chi tiet.

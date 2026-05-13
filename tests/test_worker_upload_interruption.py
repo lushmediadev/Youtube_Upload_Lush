@@ -232,6 +232,19 @@ class WorkerUploadInterruptionTests(unittest.TestCase):
         self.assertEqual(failed.status, "error")
         self.assertEqual(self.store.sent_live_alerts, [])
 
+    def test_startup_grace_skips_false_upload_expiry_after_control_plane_restart(self) -> None:
+        self.store._process_started_at = self.now - timedelta(seconds=15)
+        self.store.jobs = [make_job(progress=74)]
+
+        changed, notifications = self.store._reconcile_expired_worker_jobs(now=self.now)
+
+        job = self.store.jobs[0]
+        self.assertFalse(changed)
+        self.assertEqual(notifications, [])
+        self.assertEqual(job.status, "uploading")
+        self.assertEqual(job.claimed_by_worker_id, "worker-1")
+        self.assertEqual(self.store.sent_live_alerts, [])
+
 
 if __name__ == "__main__":
     unittest.main()

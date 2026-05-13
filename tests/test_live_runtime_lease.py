@@ -334,6 +334,25 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.assertIn("[LIVE] Luồng live đã kết thúc", self.store.live_notifications[0][1])
         self.assertNotIn("mất kết nối", self.store.live_notifications[0][1].casefold())
 
+    def test_startup_grace_skips_false_live_expiry_after_control_plane_restart(self) -> None:
+        reconcile_at = datetime(2026, 5, 12, 9, 31, 37)
+        self.store._process_started_at = reconcile_at - timedelta(seconds=15)
+        self.store.live_streams = [
+            make_stream(
+                status="streaming",
+                lease_expires_at=datetime(2026, 5, 12, 9, 31),
+                first_streaming_started_at=datetime(2026, 5, 12, 9, 15, 9),
+            )
+        ]
+
+        changed = self.store._reconcile_expired_live_streams(now=reconcile_at)
+
+        stream = self.store.live_streams[0]
+        self.assertFalse(changed)
+        self.assertEqual(stream.status, "streaming")
+        self.assertEqual(stream.claimed_by_worker_id, "live-worker-01")
+        self.assertEqual(self.store.live_notifications, [])
+
     def test_editing_downloading_or_preparing_live_is_locked(self) -> None:
         for status in ("downloading", "preparing"):
             with self.subTest(status=status):

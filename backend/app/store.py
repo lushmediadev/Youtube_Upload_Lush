@@ -11,6 +11,8 @@ import mimetypes
 import os
 import re
 import secrets
+import time
+import traceback
 import unicodedata
 from pathlib import Path
 import shutil
@@ -413,6 +415,7 @@ class AppStore:
         self._live_progress_last_saved_at: dict[str, datetime] = {}
         self._live_worker_heartbeat_last_saved_at: dict[str, datetime] = {}
         self._worker_heartbeat_last_saved_at: dict[str, datetime] = {}
+        self._state_write_trace_last_logged_at: dict[str, float] = {}
         self._worker_state_lock = RLock()
         self._monitor_stop_event = Event()
         self._monitor_thread: Thread | None = None
@@ -1182,6 +1185,7 @@ class AppStore:
         }
 
     def _save_state(self) -> None:
+        self._trace_state_write()
         self._save_auth_state()
         payload = json.dumps(self._serialize_state(), ensure_ascii=False)
         with sqlite3.connect(self.state_db_path) as connection:
@@ -1196,6 +1200,27 @@ class AppStore:
                 (payload, self._now(trim=False).isoformat()),
             )
             connection.commit()
+
+    def _trace_state_write(self) -> None:
+        if str(os.getenv("APP_TRACE_STATE_WRITES", "")).strip().lower() not in {"1", "true", "yes", "on"}:
+            return
+        stack = traceback.extract_stack(limit=8)
+        caller = next(
+            (
+                frame
+                for frame in reversed(stack[:-1])
+                if frame.name != "_save_state"
+            ),
+            None,
+        )
+        if caller is None:
+            return
+        key = f"{Path(caller.filename).name}:{caller.lineno}:{caller.name}"
+        now = time.monotonic()
+        if now - self._state_write_trace_last_logged_at.get(key, 0.0) < 30:
+            return
+        self._state_write_trace_last_logged_at[key] = now
+        logger.warning("state_write_trace caller=%s", key)
 
     def _load_or_seed_state(self) -> None:
         live_demo_seed_enabled = self._live_demo_seed_enabled()

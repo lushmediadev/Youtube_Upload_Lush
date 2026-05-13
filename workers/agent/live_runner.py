@@ -22,6 +22,7 @@ from .control_plane import (
 )
 from .downloader import download_remote_asset
 from .ffmpeg_pipeline import MediaInfo, probe_media
+from .live_supervisor import LiveSupervisor
 
 
 def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
@@ -272,6 +273,7 @@ def _make_progress_reporter(
     stream_id: str,
     *,
     activity_path: Path | None = None,
+    supervisor: LiveSupervisor | None = None,
 ):
     state = {
         "status": None,
@@ -305,14 +307,29 @@ def _make_progress_reporter(
             state["message"] = cleaned_message
             return
 
-        update_live_stream_progress(
-            client,
-            config,
-            stream_id,
-            status=status,
-            progress=bounded,
-            message=cleaned_message,
-        )
+        if supervisor is not None:
+            supervisor.record_state(status, bounded, cleaned_message, event="progress")
+        try:
+            update_live_stream_progress(
+                client,
+                config,
+                stream_id,
+                status=status,
+                progress=bounded,
+                message=cleaned_message,
+            )
+        except Exception as exc:
+            if isinstance(exc, LiveStreamStoppedError) or _is_terminal_live_stream_conflict(exc):
+                raise
+            if supervisor is not None:
+                supervisor.record_event(
+                    "progress_report_failed",
+                    status=status,
+                    progress=bounded,
+                    message=cleaned_message,
+                    error=str(exc),
+                )
+            print(f"[live] progress report failed for {stream_id}: {exc}", flush=True)
         state["status"] = status
         state["progress"] = max(last_progress, bounded)
         state["message"] = cleaned_message
@@ -495,6 +512,7 @@ def _maybe_normalize_live_video(
     normalized_dir: Path,
     report_progress,
     lifecycle_guard=None,
+    supervisor: LiveSupervisor | None = None,
 ) -> tuple[Path, bool]:
     media_info = probe_media(config.ffprobe_bin, video_path)
     plan = _resolve_live_video_normalize_plan(
@@ -611,6 +629,7 @@ def _maybe_normalize_live_video(
             total_duration_seconds=max(1.0, float(media_info.duration_seconds or 1.0)),
             progress_callback=_on_progress,
             lifecycle_guard=lifecycle_guard,
+            supervisor=supervisor,
         )
         return normalized_path, True
     finally:
@@ -627,6 +646,7 @@ def _run_ffmpeg_with_progress(
     end_time_live: datetime | None = None,
     lifecycle_guard=None,
     expected_playback_mode: str | None = None,
+    supervisor: LiveSupervisor | None = None,
 ) -> str:
     command = [
         config.ffmpeg_bin,
@@ -651,6 +671,8 @@ def _run_ffmpeg_with_progress(
     terminated_for_mode_change = False
     callback_error: Exception | None = None
     return_code: int | None = None
+    if supervisor is not None:
+        supervisor.record_event("ffmpeg_start", pid=process.pid, cwd=str(working_dir))
 
     def _check_runtime(*, force: bool = False) -> bool:
         nonlocal callback_error, terminated_for_mode_change
@@ -691,6 +713,8 @@ def _run_ffmpeg_with_progress(
             line = raw_line.strip()
             if line:
                 output_lines.append(line)
+                if supervisor is not None:
+                    supervisor.append_ffmpeg_line(line)
             if not progress_callback or not total_duration_seconds:
                 continue
             if line.startswith("out_time_ms="):
@@ -715,6 +739,13 @@ def _run_ffmpeg_with_progress(
                 return_code = process.wait(timeout=5.0)
         else:
             return_code = process.wait()
+    if supervisor is not None:
+        supervisor.record_event(
+            "ffmpeg_exit",
+            return_code=return_code,
+            ended_by_schedule=terminated_for_end_time,
+            paused_by_playback_mode=terminated_for_mode_change,
+        )
     if callback_error is not None:
         raise callback_error
     if terminated_for_mode_change:
@@ -736,6 +767,7 @@ def _prepare_rendered_media(
     report_progress,
     lifecycle_guard=None,
     progress_floor: int = 0,
+    supervisor: LiveSupervisor | None = None,
 ) -> Path:
     render_dir.mkdir(parents=True, exist_ok=True)
     rendered_path = render_dir / "rendered.flv"
@@ -793,6 +825,7 @@ def _prepare_rendered_media(
         total_duration_seconds=total_duration,
         progress_callback=_on_progress,
         lifecycle_guard=lifecycle_guard,
+        supervisor=supervisor,
     )
     report_progress("preparing", 100, "Đã chuẩn bị xong luồng", force=True)
     return rendered_path
@@ -843,6 +876,7 @@ def _stream_once(
     end_time_live: datetime | None,
     lifecycle_guard=None,
     expected_playback_mode: str | None = None,
+    supervisor: LiveSupervisor | None = None,
 ) -> str:
     def _on_progress(ratio: float, current_seconds: float) -> None:
         report_progress(
@@ -876,16 +910,10 @@ def _stream_once(
         end_time_live=end_time_live,
         lifecycle_guard=lifecycle_guard,
         expected_playback_mode=expected_playback_mode,
+        supervisor=supervisor,
     )
     if stream_result == "completed":
-        update_live_stream_progress(
-            client,
-            config,
-            stream_id,
-            status="streaming",
-            progress=100,
-            message=completed_message,
-        )
+        report_progress("streaming", 100, completed_message, force=True)
     return stream_result
 
 
@@ -900,6 +928,7 @@ def _run_hot_standby_backup_loop(
     rtmp_target: str,
     report_progress,
     lifecycle_guard=None,
+    supervisor: LiveSupervisor | None = None,
 ) -> None:
     standby_message = "Backup đã sẵn sàng, đang chờ tiếp quản luồng"
     report_progress("waiting", 100, standby_message, force=True)
@@ -925,12 +954,21 @@ def _run_hot_standby_backup_loop(
                 end_time_live=None,
                 lifecycle_guard=lifecycle_guard,
                 expected_playback_mode="stream",
+                supervisor=supervisor,
             )
         except RuntimeError as exc:
             if not _should_retry_rtmp_output_error(stream, exc):
                 raise
             rtmp_retry_count += 1
             retry_delay = LIVE_RTMP_RETRY_DELAY_SECONDS
+            if supervisor is not None:
+                supervisor.record_event(
+                    "rtmp_retry",
+                    role="backup",
+                    attempt=rtmp_retry_count,
+                    delay_seconds=retry_delay,
+                    error=str(exc),
+                )
             print(
                 (
                     "[live] backup RTMP output disconnected; retrying "
@@ -970,6 +1008,11 @@ def _run_hot_standby_backup_loop(
 def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) -> None:
     stream_id = str(stream["id"])
     live_root = config.work_root / "live-streams"
+    supervisor = LiveSupervisor(
+        root=config.work_root / "live-state" / stream_id,
+        worker_id=config.worker_id,
+        stream_id=stream_id,
+    )
     work_dir = live_root / stream_id
     downloads_dir = work_dir / "downloads"
     normalized_dir = work_dir / "normalized"
@@ -980,9 +1023,16 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
     if work_dir.exists():
         shutil.rmtree(work_dir, ignore_errors=True)
     downloads_dir.mkdir(parents=True, exist_ok=True)
-    report_progress = _make_progress_reporter(client, config, stream_id, activity_path=activity_path)
+    report_progress = _make_progress_reporter(
+        client,
+        config,
+        stream_id,
+        activity_path=activity_path,
+        supervisor=supervisor,
+    )
     lifecycle_guard = _make_live_runtime_guard(client, config, stream_id)
     _touch_activity(activity_path)
+    supervisor.record_event("run_started", stream_name=str(stream.get("stream_name") or ""))
 
     try:
         lifecycle_guard(force=True)
@@ -1000,6 +1050,7 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
             normalized_dir=normalized_dir,
             report_progress=report_progress,
             lifecycle_guard=lifecycle_guard,
+            supervisor=supervisor,
         )
         rendered_path = _prepare_rendered_media(
             config,
@@ -1009,6 +1060,7 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
             report_progress=report_progress,
             lifecycle_guard=lifecycle_guard,
             progress_floor=96 if normalized_video else 0,
+            supervisor=supervisor,
         )
         shutil.rmtree(downloads_dir, ignore_errors=True)
 
@@ -1031,7 +1083,9 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
                 rtmp_target=target,
                 report_progress=report_progress,
                 lifecycle_guard=lifecycle_guard,
+                supervisor=supervisor,
             )
+            supervisor.record_event("run_finished", result="backup_loop_returned")
             return
 
         report_progress("streaming", 0, "Bắt đầu đẩy RTMP", force=True)
@@ -1050,6 +1104,7 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
                     report_progress=report_progress,
                     end_time_live=end_time_live,
                     lifecycle_guard=lifecycle_guard,
+                    supervisor=supervisor,
                 )
             except RuntimeError as exc:
                 if not _should_retry_rtmp_output_error(stream, exc):
@@ -1058,6 +1113,13 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
                     break
                 rtmp_retry_count += 1
                 retry_delay = LIVE_RTMP_RETRY_DELAY_SECONDS
+                supervisor.record_event(
+                    "rtmp_retry",
+                    role="primary",
+                    attempt=rtmp_retry_count,
+                    delay_seconds=retry_delay,
+                    error=str(exc),
+                )
                 print(
                     (
                         "[live] RTMP output disconnected; retrying "
@@ -1093,6 +1155,10 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
             if end_time_live and _now_local() >= end_time_live:
                 break
         complete_live_stream(client, config, stream_id, message="Luồng live đã kết thúc theo lịch.")
+        supervisor.record_event("run_finished", result="completed")
+    except Exception as exc:
+        supervisor.record_event("run_failed", error=str(exc))
+        raise
     finally:
         if not config.keep_job_dirs and work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)

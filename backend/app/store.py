@@ -6076,6 +6076,55 @@ class AppStore:
         stream.updated_at = now
         return notification_payload
 
+    def _clear_live_stream_telemetry_stale(self, stream: LiveStreamRecord, *, now: datetime) -> bool:
+        changed = False
+        if str(stream.log_label or "").strip() == "Mất telemetry":
+            stream.log_label = self._live_runtime_log_label(str(stream.status or ""))
+            changed = True
+        if "telemetry" in str(stream.status_message or "").casefold():
+            stream.status_message = None
+            changed = True
+        if changed:
+            stream.updated_at = now
+        return changed
+
+    def _mark_live_stream_telemetry_stale(
+        self,
+        stream: LiveStreamRecord,
+        *,
+        now: datetime,
+        reason: str,
+    ) -> tuple[bool, tuple[list[str], str] | None]:
+        visible_stream = self._visible_live_stream_for_runtime(stream)
+        if self._live_stream_has_reached_schedule_end(visible_stream, now=now):
+            if self._is_visible_live_stream(stream):
+                return True, self._mark_visible_live_stream_ended(
+                    stream,
+                    now=now,
+                    message="Luồng live đã kết thúc theo lịch.",
+                )
+            self._finalize_live_stream_ended_state(
+                stream,
+                now=now,
+                message="Luồng live đã kết thúc theo lịch.",
+            )
+            return True, None
+
+        message = (reason or "").strip() or "Control-plane không nhận được telemetry từ live worker."
+        changed = False
+        if stream.log_label != "Mất telemetry":
+            stream.log_label = "Mất telemetry"
+            changed = True
+        if stream.status_message != message:
+            stream.status_message = message
+            changed = True
+        if stream.lease_expires_at is None or stream.lease_expires_at <= now:
+            stream.lease_expires_at = now + timedelta(seconds=self._live_stream_lease_seconds(stream))
+            changed = True
+        if changed:
+            stream.updated_at = now
+        return changed, None
+
     def _reconcile_live_streams_from_heartbeat(
         self,
         worker: WorkerRecord,
@@ -6090,15 +6139,16 @@ class AppStore:
             if stream.id in active_stream_id_set:
                 lease_duration = timedelta(seconds=self._live_stream_lease_seconds(stream))
                 stream.lease_expires_at = now + lease_duration
+                self._clear_live_stream_telemetry_stale(stream, now=now)
                 continue
             if str(stream.status or "").strip().lower() not in self._live_worker_active_statuses():
                 continue
             if stream.lease_expires_at is not None and stream.lease_expires_at > now:
                 continue
-            notification_payload = self._handle_interrupted_live_stream(
+            changed, notification_payload = self._mark_live_stream_telemetry_stale(
                 stream,
                 now=now,
-                reason="Worker không còn báo luồng live này trong heartbeat sau khi đã qua grace window.",
+                reason="Không nhận telemetry từ live worker trong heartbeat sau grace window. Worker local có thể vẫn đang stream hoặc tự retry RTMP.",
             )
             if notification_payload is not None:
                 self._notify_live_telegram_chat_ids(notification_payload[0], notification_payload[1])
@@ -8437,14 +8487,14 @@ class AppStore:
                 continue
             if stream.lease_expires_at is None or stream.lease_expires_at > now:
                 continue
-            notification_payload = self._handle_interrupted_live_stream(
+            stream_changed, notification_payload = self._mark_live_stream_telemetry_stale(
                 stream,
                 now=now,
-                reason="Control-plane không nhận được heartbeat/progress của live worker trong thời gian grace.",
+                reason="Control-plane không nhận được telemetry từ live worker trong thời gian grace. Worker local có thể vẫn đang stream hoặc tự retry RTMP.",
             )
             if notification_payload is not None:
                 self._notify_live_telegram_chat_ids(notification_payload[0], notification_payload[1])
-            changed = True
+            changed = changed or stream_changed
         if changed:
             self._sync_live_backup_policy(now=now)
             self._save_state()

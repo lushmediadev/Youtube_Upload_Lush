@@ -56,6 +56,7 @@
 | DEC-049 | Worker bootstrap phai disable unattended apt upgrades/apt-daily timers de tranh OS auto-upgrade restart worker giua upload/live job | Active | worker bootstrap + VPS ops | High |
 | DEC-050 | Xoa BOT phai uu tien SSH cleanup, nhung neu control-plane khong ket noi duoc VPS thi duoc phep xoa record local de xu ly VPS het han/disconnected | Active | worker decommission + admin ops | High |
 | DEC-051 | Control-plane vua restart khong duoc expire worker/live qua som; monitor phai co startup grace truoc khi danh offline/disconnected/error tu heartbeat lease | Active | control-plane runtime resilience | High |
+| DEC-052 | Live worker la local supervisor co state/log rieng; control-plane heartbeat/lease miss chi danh dau `Mất telemetry`, khong tu ket luan live runtime chet hay failover | Active | live runtime + control-plane resilience | High |
 
 ## Notes
 - `docs/DECISIONS.md` van giu full history va ly do chi tiet.

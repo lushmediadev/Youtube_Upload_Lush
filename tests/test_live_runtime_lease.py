@@ -353,6 +353,107 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.assertEqual(stream.claimed_by_worker_id, "live-worker-01")
         self.assertEqual(self.store.live_notifications, [])
 
+    def test_missing_heartbeat_marks_live_telemetry_stale_without_releasing_claim(self) -> None:
+        reconcile_at = datetime(2026, 5, 13, 16, 55)
+        self.store.live_streams = [
+            make_stream(
+                status="streaming",
+                lease_expires_at=reconcile_at - timedelta(seconds=1),
+                first_streaming_started_at=datetime(2026, 5, 13, 16, 50),
+            )
+        ]
+
+        self.store._reconcile_live_streams_from_heartbeat(
+            self.store.live_workers[0],
+            active_stream_ids=[],
+            now=reconcile_at,
+        )
+
+        stream = self.store.live_streams[0]
+        self.assertEqual(stream.status, "streaming")
+        self.assertEqual(stream.claimed_by_worker_id, "live-worker-01")
+        self.assertIsNone(stream.disconnected_at)
+        self.assertEqual(stream.log_label, "Mất telemetry")
+        self.assertIn("Không nhận telemetry", stream.status_message or "")
+        self.assertEqual(self.store.live_notifications, [])
+
+    def test_expired_live_lease_marks_telemetry_stale_without_failing_runtime(self) -> None:
+        reconcile_at = datetime(2026, 5, 13, 16, 55)
+        self.store._process_started_at = reconcile_at - timedelta(hours=1)
+        self.store.live_streams = [
+            make_stream(
+                status="streaming",
+                lease_expires_at=reconcile_at - timedelta(seconds=1),
+                first_streaming_started_at=datetime(2026, 5, 13, 16, 50),
+            )
+        ]
+
+        changed = self.store._reconcile_expired_live_streams(now=reconcile_at)
+
+        stream = self.store.live_streams[0]
+        self.assertTrue(changed)
+        self.assertEqual(stream.status, "streaming")
+        self.assertEqual(stream.claimed_by_worker_id, "live-worker-01")
+        self.assertEqual(stream.log_label, "Mất telemetry")
+        self.assertIn("Control-plane không nhận được telemetry", stream.status_message or "")
+        self.assertEqual(self.store.live_notifications, [])
+
+    def test_expired_backup_clone_telemetry_stale_does_not_turn_clone_error(self) -> None:
+        reconcile_at = datetime(2026, 5, 13, 16, 55)
+        self.store._process_started_at = reconcile_at - timedelta(hours=1)
+        primary = make_stream(
+            status="disconnected",
+            lease_expires_at=reconcile_at - timedelta(minutes=10),
+            first_streaming_started_at=datetime(2026, 5, 13, 16, 45),
+        )
+        primary.backup_worker_id = "live-worker-backup"
+        primary.backup_stream_id = "live-backup"
+        backup = make_stream(
+            status="streaming",
+            lease_expires_at=reconcile_at - timedelta(seconds=1),
+            first_streaming_started_at=datetime(2026, 5, 13, 16, 46),
+        )
+        backup.id = "live-backup"
+        backup.primary_worker_id = "live-worker-backup"
+        backup.runtime_role = "backup"
+        backup.is_runtime_clone = True
+        backup.parent_stream_id = primary.id
+        backup.claimed_by_worker_id = "live-worker-backup"
+        backup.claimed_by_role = "backup"
+        self.store.live_workers.append(make_live_worker("live-worker-backup"))
+        self.store.live_streams = [primary, backup]
+
+        changed = self.store._reconcile_expired_live_streams(now=reconcile_at)
+
+        self.assertTrue(changed)
+        self.assertEqual(backup.status, "streaming")
+        self.assertEqual(backup.claimed_by_worker_id, "live-worker-backup")
+        self.assertEqual(backup.log_label, "Mất telemetry")
+        self.assertIsNone(backup.error_message)
+        self.assertEqual(self.store.live_notifications, [])
+
+    def test_heartbeat_active_stream_clears_telemetry_stale_marker(self) -> None:
+        heartbeat_at = datetime(2026, 5, 13, 16, 55)
+        stream = make_stream(
+            status="streaming",
+            lease_expires_at=heartbeat_at - timedelta(seconds=1),
+            first_streaming_started_at=datetime(2026, 5, 13, 16, 50),
+        )
+        stream.log_label = "Mất telemetry"
+        stream.status_message = "Không nhận telemetry từ live worker."
+        self.store.live_streams = [stream]
+
+        self.store._reconcile_live_streams_from_heartbeat(
+            self.store.live_workers[0],
+            active_stream_ids=[stream.id],
+            now=heartbeat_at,
+        )
+
+        self.assertEqual(stream.status, "streaming")
+        self.assertEqual(stream.log_label, "Đang live")
+        self.assertIsNone(stream.status_message)
+        self.assertGreater(stream.lease_expires_at, heartbeat_at)
+
     def test_editing_downloading_or_preparing_live_is_locked(self) -> None:
         for status in ("downloading", "preparing"):
             with self.subTest(status=status):

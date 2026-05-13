@@ -6754,9 +6754,10 @@ class AppStore:
             return True
         if normalized_status != "streaming":
             return True
-        last_saved_at = self._live_progress_last_saved_at.get(stream.id)
+        checkpoint_key = "_global"
+        last_saved_at = self._live_progress_last_saved_at.get(checkpoint_key)
         if last_saved_at is None:
-            self._live_progress_last_saved_at[stream.id] = now
+            self._live_progress_last_saved_at[checkpoint_key] = now
             return False
         return last_saved_at + timedelta(seconds=self._live_progress_save_interval_seconds()) <= now
 
@@ -6898,7 +6899,7 @@ class AppStore:
             )
             if should_save_state:
                 self._save_state()
-                self._live_progress_last_saved_at[stream.id] = now
+                self._live_progress_last_saved_at["_global"] = now
             snapshot = deepcopy(stream)
         if notification_message and notification_chat_ids:
             self._notify_live_telegram_chat_ids(notification_chat_ids, notification_message)

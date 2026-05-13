@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_SUPERVISOR_LOG_MAX_BYTES = 5 * 1024 * 1024
-DEFAULT_FFMPEG_LOG_MAX_BYTES = 10 * 1024 * 1024
+DEFAULT_SUPERVISOR_LOG_MAX_BYTES = 1 * 1024 * 1024
+DEFAULT_FFMPEG_LOG_MAX_BYTES = 2 * 1024 * 1024
 
 
 def _utc_now_iso() -> str:

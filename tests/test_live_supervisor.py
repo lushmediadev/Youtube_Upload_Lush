@@ -13,6 +13,8 @@ sys.modules.setdefault("gdown", ModuleType("gdown"))
 
 from workers.agent import live_runner
 from workers.agent.live_supervisor import LiveSupervisor
+from workers.agent.live_supervisor import DEFAULT_FFMPEG_LOG_MAX_BYTES
+from workers.agent.live_supervisor import DEFAULT_SUPERVISOR_LOG_MAX_BYTES
 
 
 class LiveSupervisorTests(unittest.TestCase):
@@ -61,6 +63,38 @@ class LiveSupervisorTests(unittest.TestCase):
             self.assertEqual(current["progress"], 33)
             event_text = (Path(tmp) / "events.log").read_text(encoding="utf-8")
             self.assertIn("progress_report_failed", event_text)
+
+    def test_progress_reporter_throttles_routine_progress(self) -> None:
+        sent: list[tuple[str, int, str | None]] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            supervisor = LiveSupervisor(
+                root=Path(tmp),
+                worker_id="live-worker-01",
+                stream_id="stream-1",
+            )
+            reporter = live_runner._make_progress_reporter(
+                httpx.Client(),
+                SimpleNamespace(worker_id="live-worker-01"),
+                "stream-1",
+                supervisor=supervisor,
+            )
+
+            with patch.object(
+                live_runner,
+                "update_live_stream_progress",
+                side_effect=lambda _client, _config, _stream_id, *, status, progress, message: sent.append((status, progress, message)),
+            ):
+                reporter("streaming", 0, "Đang live", force=True)
+                reporter("streaming", 1, "Đang live")
+                reporter("streaming", 2, "Đang live")
+
+            self.assertEqual(len(sent), 1)
+            events = (Path(tmp) / "events.log").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(events), 1)
+
+    def test_supervisor_log_caps_are_small_for_many_streams(self) -> None:
+        self.assertLessEqual(DEFAULT_SUPERVISOR_LOG_MAX_BYTES, 1 * 1024 * 1024)
+        self.assertLessEqual(DEFAULT_FFMPEG_LOG_MAX_BYTES, 2 * 1024 * 1024)
 
 
 if __name__ == "__main__":

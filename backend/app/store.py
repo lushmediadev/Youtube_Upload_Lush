@@ -6752,7 +6752,7 @@ class AppStore:
             return True
         if previous_status != normalized_status:
             return True
-        if normalized_status != "streaming":
+        if normalized_status not in self._live_worker_lease_refresh_statuses():
             return True
         checkpoint_key = "_global"
         last_saved_at = self._live_progress_last_saved_at.get(checkpoint_key)

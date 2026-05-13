@@ -296,10 +296,10 @@ def _make_progress_reporter(
         should_send = force
         should_send = should_send or last_status != status
         should_send = should_send or bounded in {0, 100}
-        should_send = should_send or progress_jump >= 3
-        should_send = should_send or (cleaned_message != last_message and now - last_sent_at >= 1.0)
-        should_send = should_send or (progress_jump > 0 and now - last_sent_at >= 1.0)
-        should_send = should_send or now - last_sent_at >= 10.0
+        should_send = should_send or progress_jump >= 25
+        should_send = should_send or (cleaned_message != last_message and now - last_sent_at >= 60.0)
+        should_send = should_send or (progress_jump > 0 and now - last_sent_at >= 30.0)
+        should_send = should_send or now - last_sent_at >= 60.0
 
         if not should_send:
             state["status"] = status

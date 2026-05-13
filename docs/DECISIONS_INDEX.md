@@ -54,6 +54,7 @@
 | DEC-047 | YouTube live ingest mac dinh dung RTMPS; worker rewrite cac URL YouTube RTMP legacy sang RTMPS khi tao ffmpeg target | Active | live runtime + worker bootstrap | High |
 | DEC-048 | Production deploy target cua repo nay la `109.123.227.253`; `82.197.71.6` chi la host lich su/stale va khong duoc dung cho rollout moi | Active | infra deploy + ops safety | High |
 | DEC-049 | Worker bootstrap phai disable unattended apt upgrades/apt-daily timers de tranh OS auto-upgrade restart worker giua upload/live job | Active | worker bootstrap + VPS ops | High |
+| DEC-050 | Xoa BOT phai uu tien SSH cleanup, nhung neu control-plane khong ket noi duoc VPS thi duoc phep xoa record local de xu ly VPS het han/disconnected | Active | worker decommission + admin ops | High |
 
 ## Notes
 - `docs/DECISIONS.md` van giu full history va ly do chi tiet.

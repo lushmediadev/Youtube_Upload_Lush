@@ -182,7 +182,7 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         backup.claimed_by_role = "backup"
         self.store.live_workers.append(make_live_worker("live-worker-backup"))
         self.store.live_user_worker_links.append(
-            {"id": 2, "user_id": "user-1", "worker_id": "live-worker-backup", "threads": 1, "role": "backup"}
+            {"id": 2, "user_id": "user-1", "worker_id": "live-worker-backup", "threads": 1, "live_role": "backup"}
         )
         self.store.live_streams = [primary, backup]
 
@@ -198,6 +198,46 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
             self.store.get_worker_shared_secret(),
         )
         self.assertIsNone(claimed)
+
+    def test_backup_clone_can_reclaim_after_disconnect(self) -> None:
+        primary = make_stream(
+            status="disconnected",
+            lease_expires_at=datetime(2000, 1, 1),
+            first_streaming_started_at=datetime(2026, 5, 11, 21, 0),
+        )
+        primary.backup_worker_id = "live-worker-backup"
+        primary.backup_stream_id = "live-backup"
+        backup = make_stream(
+            status="disconnected",
+            lease_expires_at=datetime(2000, 1, 1),
+            first_streaming_started_at=datetime(2026, 5, 11, 21, 1),
+        )
+        backup.id = "live-backup"
+        backup.primary_worker_id = "live-worker-backup"
+        backup.runtime_role = "backup"
+        backup.is_runtime_clone = True
+        backup.parent_stream_id = primary.id
+        backup.claimed_by_worker_id = None
+        backup.claimed_by_role = None
+        self.store.live_workers.append(make_live_worker("live-worker-backup"))
+        self.store.live_user_worker_links.append(
+            {"id": 2, "user_id": "user-1", "worker_id": "live-worker-backup", "threads": 1, "live_role": "backup"}
+        )
+        self.store.live_streams = [primary, backup]
+
+        self.assertTrue(
+            self.store._can_claim_live_stream(
+                backup,
+                worker_id="live-worker-backup",
+                now=datetime.now(),
+            )
+        )
+        _, claimed = self.store.claim_next_live_stream(
+            "live-worker-backup",
+            self.store.get_worker_shared_secret(),
+        )
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, "live-backup")
 
     def test_timed_primary_can_reclaim_if_backup_clone_is_not_active(self) -> None:
         end_time = datetime.now() + timedelta(hours=2)

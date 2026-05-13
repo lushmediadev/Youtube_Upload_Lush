@@ -176,6 +176,43 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.assertEqual(self.store.live_streams[0].progress, 51)
         self.assertEqual(self.store.save_calls, 1)
 
+    def test_live_worker_heartbeat_throttles_state_persistence(self) -> None:
+        payload = type(
+            "Payload",
+            (),
+            {
+                "worker_id": "live-worker-01",
+                "shared_secret": self.store.get_worker_shared_secret(),
+                "status": "online",
+                "load_percent": 1,
+                "ram_percent": 2,
+                "ram_used_gb": 0.1,
+                "ram_total_gb": 1.0,
+                "bandwidth_kbps": 3.0,
+                "disk_used_gb": 4.0,
+                "disk_total_gb": 100.0,
+                "capacity": 1,
+                "threads": 1,
+                "active_stream_ids": [],
+            },
+        )()
+
+        self.store.heartbeat_live_worker(payload)
+        payload.load_percent = 5
+        self.store.heartbeat_live_worker(payload)
+
+        self.assertEqual(self.store.live_workers[0].load_percent, 5)
+        self.assertEqual(self.store.save_calls, 1)
+
+    def test_noop_live_claim_does_not_persist_state(self) -> None:
+        _worker, claimed = self.store.claim_next_live_stream(
+            "live-worker-01",
+            self.store.get_worker_shared_secret(),
+        )
+
+        self.assertIsNone(claimed)
+        self.assertEqual(self.store.save_calls, 0)
+
     def test_started_disconnected_stream_without_backup_can_be_reclaimed(self) -> None:
         self.store.live_streams = [
             make_stream(

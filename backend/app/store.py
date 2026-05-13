@@ -410,6 +410,7 @@ class AppStore:
         self.live_telegram_link_requests: dict[str, dict[str, Any]] = {}
         self.admin_notifications: list[dict[str, Any]] = []
         self._live_progress_last_saved_at: dict[str, datetime] = {}
+        self._live_worker_heartbeat_last_saved_at: dict[str, datetime] = {}
         self._worker_state_lock = RLock()
         self._monitor_stop_event = Event()
         self._monitor_thread: Thread | None = None
@@ -5494,6 +5495,14 @@ class AppStore:
         except ValueError:
             return 30
 
+    @staticmethod
+    def _live_worker_heartbeat_save_interval_seconds() -> int:
+        raw_value = str(os.getenv("LIVE_WORKER_HEARTBEAT_SAVE_INTERVAL_SECONDS", "30")).strip()
+        try:
+            return max(5, int(raw_value))
+        except ValueError:
+            return 30
+
     def _live_runtime_retry_anchor(self, stream: LiveStreamRecord) -> datetime | None:
         return (
             stream.disconnected_at
@@ -6245,7 +6254,8 @@ class AppStore:
         *,
         active_stream_ids: list[str],
         now: datetime,
-    ) -> None:
+    ) -> bool:
+        changed = False
         active_stream_id_set = {str(stream_id).strip() for stream_id in active_stream_ids if str(stream_id).strip()}
         for stream in self.live_streams:
             if stream.claimed_by_worker_id != worker.id:
@@ -6253,7 +6263,7 @@ class AppStore:
             if stream.id in active_stream_id_set:
                 lease_duration = timedelta(seconds=self._live_stream_lease_seconds(stream))
                 stream.lease_expires_at = now + lease_duration
-                self._clear_live_stream_telemetry_stale(stream, now=now)
+                changed = self._clear_live_stream_telemetry_stale(stream, now=now) or changed
                 continue
             if str(stream.status or "").strip().lower() not in self._live_worker_active_statuses():
                 continue
@@ -6269,14 +6279,17 @@ class AppStore:
                     self._notify_live_telegram_chat_ids(live_notification[0], live_notification[1])
                 if ops_notification is not None:
                     self._notify_telegram_chat_ids(ops_notification[0], ops_notification[1])
+                changed = True
                 continue
-            changed, notification_payload = self._mark_live_stream_telemetry_stale(
+            stream_changed, notification_payload = self._mark_live_stream_telemetry_stale(
                 stream,
                 now=now,
                 reason="Không nhận telemetry từ live worker trong heartbeat sau grace window. Worker local có thể vẫn đang stream hoặc tự retry RTMP.",
             )
             if notification_payload is not None:
                 self._notify_live_telegram_chat_ids(notification_payload[0], notification_payload[1])
+            changed = changed or stream_changed
+        return changed
 
     def _release_completed_prestream_restart_requests(
         self,
@@ -6284,7 +6297,8 @@ class AppStore:
         *,
         active_stream_ids: list[str],
         now: datetime,
-    ) -> None:
+    ) -> bool:
+        changed = False
         active_stream_id_set = {str(stream_id).strip() for stream_id in active_stream_ids if str(stream_id).strip()}
         for stream in self.live_streams:
             if str(stream.primary_worker_id or "").strip() != worker.id:
@@ -6298,6 +6312,8 @@ class AppStore:
                 continue
             stream.stop_requested_at = None
             stream.updated_at = now
+            changed = True
+        return changed
 
     def register_live_worker(self, payload: LiveWorkerRegisterPayload) -> LiveWorkerControlResponse:
         completed_task: dict[str, Any] | None = None
@@ -6491,6 +6507,7 @@ class AppStore:
         with self._worker_state_lock:
             worker = self._authenticate_live_worker(payload.worker_id, payload.shared_secret)
             now = self._now(trim=False)
+            previous_status = str(worker.status or "").strip().lower()
             reconnect_notification = self._worker_reconnect_notification(worker, now=now, live=True)
             worker.load_percent = payload.load_percent
             worker.ram_percent = payload.ram_percent
@@ -6513,22 +6530,31 @@ class AppStore:
             worker.last_seen_at = now
             worker.offline_since_at = None
             worker.offline_alert_sent_at = None
-            self._reconcile_live_streams_from_heartbeat(
+            stream_state_changed = self._reconcile_live_streams_from_heartbeat(
                 worker,
                 active_stream_ids=payload.active_stream_ids or [],
                 now=now,
             )
-            self._release_completed_prestream_restart_requests(
+            stream_state_changed = self._release_completed_prestream_restart_requests(
                 worker,
                 active_stream_ids=payload.active_stream_ids or [],
                 now=now,
-            )
+            ) or stream_state_changed
             self._sync_live_backup_policy(now=now)
             if self._count_live_worker_running_streams(worker) > 0:
                 worker.status = "busy"
             else:
                 worker.status = payload.status
-            self._save_state()
+            should_save_state = self._should_persist_live_worker_heartbeat(
+                worker,
+                previous_status=previous_status,
+                now=now,
+                stream_state_changed=stream_state_changed,
+                force=reconnect_notification is not None,
+            )
+            if should_save_state:
+                self._save_state()
+                self._live_worker_heartbeat_last_saved_at[worker.id] = now
             snapshot = deepcopy(worker)
         if reconnect_notification is not None:
             self._notify_telegram_chat_ids(reconnect_notification[0], reconnect_notification[1])
@@ -6554,6 +6580,7 @@ class AppStore:
         with self._worker_state_lock:
             worker = self._authenticate_live_worker(worker_id, shared_secret)
             now = self._now(trim=False)
+            previous_status = str(worker.status or "").strip().lower()
             self._sync_live_backup_policy(now=now)
             max_threads = self._effective_live_worker_thread_limit(worker)
             self_reclaim_candidates = [
@@ -6576,7 +6603,9 @@ class AppStore:
 
             if self._count_live_worker_reserved_streams(worker, now=now) >= max_threads:
                 self._sync_live_worker_runtime_status(worker)
-                self._save_state()
+                if previous_status != str(worker.status or "").strip().lower():
+                    self._save_state()
+                    self._live_worker_heartbeat_last_saved_at[worker.id] = now
                 return deepcopy(worker), None
 
             candidates = [
@@ -6587,7 +6616,9 @@ class AppStore:
             ]
             if not candidates:
                 self._sync_live_worker_runtime_status(worker)
-                self._save_state()
+                if previous_status != str(worker.status or "").strip().lower():
+                    self._save_state()
+                    self._live_worker_heartbeat_last_saved_at[worker.id] = now
                 return deepcopy(worker), None
 
             stream = sorted(candidates, key=self._live_stream_claim_sort_key)[0]
@@ -6659,6 +6690,25 @@ class AppStore:
         if last_saved_at is None:
             return True
         return last_saved_at + timedelta(seconds=self._live_progress_save_interval_seconds()) <= now
+
+    def _should_persist_live_worker_heartbeat(
+        self,
+        worker: WorkerRecord,
+        *,
+        previous_status: str,
+        now: datetime,
+        stream_state_changed: bool,
+        force: bool = False,
+    ) -> bool:
+        if force or stream_state_changed:
+            return True
+        current_status = str(worker.status or "").strip().lower()
+        if previous_status != current_status:
+            return True
+        last_saved_at = self._live_worker_heartbeat_last_saved_at.get(worker.id)
+        if last_saved_at is None:
+            return True
+        return last_saved_at + timedelta(seconds=self._live_worker_heartbeat_save_interval_seconds()) <= now
 
     def update_live_stream_progress(
         self,

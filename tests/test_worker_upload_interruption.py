@@ -215,7 +215,7 @@ class WorkerUploadInterruptionTests(unittest.TestCase):
         self.assertIn("[UPLOAD] Job upload", message)
         self.assertIn("Aurelian Nocturne", message)
         self.assertIn(
-            "Lỗi: YouTube/Google yêu cầu Verify it's you. Vui lòng xoá kênh và thêm lại kênh.",
+            "Lỗi: YouTube/Google yêu cầu Verify it's you. Vui lòng bấm Truy cập Studio, chọn đúng kênh",
             message,
         )
 

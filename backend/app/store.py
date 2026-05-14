@@ -2884,7 +2884,8 @@ class AppStore:
         ):
             return (
                 "YouTube/Google yêu cầu Verify it's you. "
-                "Vui lòng xoá kênh và thêm lại kênh."
+                "Vui lòng bấm Truy cập Studio, chọn đúng kênh để mở Chrome profile trên VPS "
+                "và xác minh thủ công, sau đó chạy lại job."
             )
         return None
 

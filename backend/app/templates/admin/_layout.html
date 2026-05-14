@@ -699,6 +699,24 @@
         background: rgba(248, 250, 252, 0.72);
       }
 
+      .admin-table:not([data-admin-table-ready="true"]) thead th {
+        padding: 14px 18px;
+        text-align: left;
+        font-size: 11px;
+        line-height: 1.25;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: rgb(71 85 105);
+      }
+
+      .admin-table:not([data-admin-table-ready="true"]) thead th.text-right {
+        text-align: right;
+      }
+
+      .admin-table:not([data-admin-table-ready="true"]) tbody tr:nth-child(n+11) {
+        display: none;
+      }
+
       .admin-table thead th:not(:last-child)::after {
         content: '';
         position: absolute;

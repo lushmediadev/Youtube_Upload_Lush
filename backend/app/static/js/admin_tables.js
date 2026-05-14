@@ -1,4 +1,6 @@
-document.addEventListener("DOMContentLoaded", function () {
+(function () {
+function initAdminTables() {
+try {
   function restoreWindowScroll(y) {
     const nextY = Number(y);
     if (!Number.isFinite(nextY) || nextY <= 0) {
@@ -719,18 +721,32 @@ document.addEventListener("DOMContentLoaded", function () {
     refreshBodyRows();
     applyTableState();
 
-    if (window.lucide) {
-      lucide.createIcons();
+    if (typeof window.hydrateAdminIcons === "function") {
+      window.hydrateAdminIcons();
+    } else if (window.lucide) {
+      window.lucide.createIcons({ attrs: { "stroke-width": 1.75 } });
     }
 
     table.addEventListener("admin-table:refresh-rows", function () {
       refreshBodyRows();
       applyTableState();
-      if (window.lucide) {
-        lucide.createIcons();
+      if (typeof window.hydrateAdminIcons === "function") {
+        window.hydrateAdminIcons();
+      } else if (window.lucide) {
+        window.lucide.createIcons({ attrs: { "stroke-width": 1.75 } });
       }
     });
 
     table.dataset.adminTableReady = "true";
   });
-});
+} finally {
+  document.documentElement.classList.remove("admin-js-booting");
+}
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initAdminTables, { once: true });
+} else {
+  initAdminTables();
+}
+})();

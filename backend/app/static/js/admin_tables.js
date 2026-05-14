@@ -1,6 +1,5 @@
 (function () {
 function initAdminTables() {
-try {
   function restoreWindowScroll(y) {
     const nextY = Number(y);
     if (!Number.isFinite(nextY) || nextY <= 0) {
@@ -739,9 +738,6 @@ try {
 
     table.dataset.adminTableReady = "true";
   });
-} finally {
-  document.documentElement.classList.remove("admin-js-booting");
-}
 }
 
 if (document.readyState === "loading") {

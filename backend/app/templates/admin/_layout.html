@@ -10,23 +10,16 @@
     <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ request.app.url_path_for('static', path='css/admin-tailwind.css') }}?v=20260514-static-tailwind">
     <script>
-      document.documentElement.classList.add('admin-js-booting');
       window.hydrateAdminIcons = function () {
         if (window.lucide) {
           window.lucide.createIcons({ attrs: { 'stroke-width': 1.75 } });
         }
       };
     </script>
-    <script async src="{{ request.app.url_path_for('static', path='vendor/lucide-admin.min.js') }}?v=20260514-admin-icons" onload="window.hydrateAdminIcons && window.hydrateAdminIcons()"></script>
+    <script defer src="{{ request.app.url_path_for('static', path='vendor/lucide-admin.min.js') }}?v=20260514-admin-icons-stable"></script>
     <style>
       :root {
         color-scheme: light;
-      }
-
-      html.admin-js-booting table[data-admin-list-table],
-      html.admin-js-booting [data-admin-table-toolbar-extra],
-      html.admin-js-booting [data-admin-table-footer-extra] {
-        visibility: hidden;
       }
 
       .panel {
@@ -1701,7 +1694,7 @@
       }
     </script>
     <script defer src="{{ request.app.url_path_for('static', path='js/mobile_shell.js') }}"></script>
-    <script defer src="{{ request.app.url_path_for('static', path='js/admin_tables.js') }}?v=20260514-fast-enhance"></script>
+    <script defer src="{{ request.app.url_path_for('static', path='js/admin_tables.js') }}?v=20260514-no-blank-tables"></script>
     {% block page_scripts %}{% endblock %}
 </body>
 </html>

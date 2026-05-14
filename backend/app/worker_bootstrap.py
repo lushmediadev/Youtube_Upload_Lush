@@ -471,7 +471,7 @@ def _build_worker_env_file(request: WorkerBootstrapRequest) -> str:
             "WORKER_NETWORK_RETRY_LOG_INTERVAL_SECONDS=60",
             "WORKER_PROGRESS_RETRY_ATTEMPTS=3",
             "WORKER_API_JITTER_SECONDS=3",
-            "WORKER_LIVE_BUSY_CLAIM_SECONDS=30",
+            "WORKER_LIVE_BUSY_CLAIM_SECONDS=10",
             "",
         ]
     )

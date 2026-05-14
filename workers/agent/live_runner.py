@@ -198,11 +198,17 @@ def _is_retriable_rtmp_output_error(exc: BaseException) -> bool:
     if "ffmpeg live runtime failed" not in message:
         return False
     retriable_tokens = (
+        "rtmp output disconnected",
+        "connection reset by peer",
         "broken pipe",
         "end of file",
         "error muxing a packet",
+        "error submitting a packet to the muxer",
         "error writing trailer",
         "error closing file",
+        "av_interleaved_write_frame",
+        "i/o error",
+        "input/output error",
     )
     return any(token in message for token in retriable_tokens)
 

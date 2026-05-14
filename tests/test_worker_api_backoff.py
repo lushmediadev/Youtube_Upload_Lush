@@ -19,19 +19,19 @@ def test_retry_delay_adds_configured_jitter():
 
 
 def test_busy_live_worker_throttles_noop_claim_probe():
-    config = SimpleNamespace(live_busy_claim_interval_seconds=30.0)
+    config = SimpleNamespace(live_busy_claim_interval_seconds=10.0)
 
     assert worker_main._should_probe_live_claim(
         config,
         active_count=1,
         last_noop_probe_at=100.0,
-        now=120.0,
+        now=105.0,
     ) is False
     assert worker_main._should_probe_live_claim(
         config,
         active_count=1,
         last_noop_probe_at=100.0,
-        now=130.0,
+        now=110.0,
     ) is True
     assert worker_main._should_probe_live_claim(
         config,

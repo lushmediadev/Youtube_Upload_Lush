@@ -22,6 +22,15 @@ class LiveRtmpRetryTests(unittest.TestCase):
 
         self.assertTrue(_is_retriable_rtmp_output_error(exc))
 
+    def test_treats_ffmpeg_connection_reset_as_retriable_rtmp_disconnect(self) -> None:
+        exc = RuntimeError(
+            "FFmpeg live runtime failed (224).\n"
+            "RTMP output disconnected\n"
+            "Error submitting a packet to the muxer: Connection reset by peer"
+        )
+
+        self.assertTrue(_is_retriable_rtmp_output_error(exc))
+
     def test_does_not_retry_non_ffmpeg_errors(self) -> None:
         self.assertFalse(_is_retriable_rtmp_output_error(RuntimeError("download failed")))
 

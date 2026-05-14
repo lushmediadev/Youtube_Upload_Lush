@@ -2205,7 +2205,32 @@
         : [],
     });
 
-    const getLiveRefreshInterval = () => (document.hidden ? 20000 : 10000);
+    const LIVE_DASHBOARD_POLL_ACTIVE_MS = 5000;
+    const LIVE_DASHBOARD_POLL_IDLE_MS = 15000;
+    const LIVE_DASHBOARD_POLL_HIDDEN_MS = 30000;
+    const LIVE_DASHBOARD_POLL_JITTER_RATIO = 0.15;
+    let lastLiveDashboardHasActiveRows = false;
+
+    const hasActiveLiveRows = (payload) => {
+      const rows = Array.isArray(payload?.live_stream_rows) ? payload.live_stream_rows : [];
+      return rows.some((item) => {
+        const label = `${item?.status_label || ''} ${item?.log_label || ''}`.toLowerCase();
+        return (
+          label.includes('đang live') ||
+          label.includes('mất kết nối') ||
+          label.includes('chuẩn bị') ||
+          label.includes('chờ đến giờ') ||
+          label.includes('chờ lịch')
+        );
+      });
+    };
+
+    const getLiveRefreshInterval = () => {
+      const baseDelay = document.hidden
+        ? LIVE_DASHBOARD_POLL_HIDDEN_MS
+        : (lastLiveDashboardHasActiveRows ? LIVE_DASHBOARD_POLL_ACTIVE_MS : LIVE_DASHBOARD_POLL_IDLE_MS);
+      return Math.round(baseDelay * (1 + Math.random() * LIVE_DASHBOARD_POLL_JITTER_RATIO));
+    };
 
     const forceRefreshLiveDashboard = async () => {
       if (!liveStreamTableBody) return false;
@@ -2220,6 +2245,7 @@
           return false;
         }
         const payload = await response.json();
+        lastLiveDashboardHasActiveRows = hasActiveLiveRows(payload);
         lastLiveDashboardSignature = '';
         applyLiveDashboardPayload(payload);
         return true;
@@ -2265,6 +2291,7 @@
           return;
         }
         const payload = await response.json();
+        lastLiveDashboardHasActiveRows = hasActiveLiveRows(payload);
         applyLiveDashboardPayload(payload);
       } catch (_error) {
         // Giữ nguyên UI hiện tại nếu polling lỗi tạm thời.

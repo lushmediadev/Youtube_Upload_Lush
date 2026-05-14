@@ -20,9 +20,10 @@
   let liveRefreshSequence = 0;
   let liveRefreshAppliedSequence = 0;
   let lastLivePayloadSignature = "";
-  const LIVE_REFRESH_INTERVAL_IDLE_MS = 5000;
-  const LIVE_REFRESH_INTERVAL_ACTIVE_MS = 1200;
-  const LIVE_REFRESH_INTERVAL_HIDDEN_MS = 2500;
+  const LIVE_REFRESH_INTERVAL_IDLE_MS = 10000;
+  const LIVE_REFRESH_INTERVAL_ACTIVE_MS = 2000;
+  const LIVE_REFRESH_INTERVAL_HIDDEN_MS = 30000;
+  const LIVE_REFRESH_JITTER_RATIO = 0.15;
   let activeBrowserSession = null;
   let browserSessionPollHandle = null;
   let activeStudioSession = null;
@@ -1162,10 +1163,10 @@
   };
 
   const getLiveRefreshInterval = (payload) => {
-    if (document.hidden) {
-      return LIVE_REFRESH_INTERVAL_HIDDEN_MS;
-    }
-    return hasActiveDashboardWork(payload) ? LIVE_REFRESH_INTERVAL_ACTIVE_MS : LIVE_REFRESH_INTERVAL_IDLE_MS;
+    const baseDelay = document.hidden
+      ? LIVE_REFRESH_INTERVAL_HIDDEN_MS
+      : (hasActiveDashboardWork(payload) ? LIVE_REFRESH_INTERVAL_ACTIVE_MS : LIVE_REFRESH_INTERVAL_IDLE_MS);
+    return Math.round(baseDelay * (1 + Math.random() * LIVE_REFRESH_JITTER_RATIO));
   };
 
   const clearLiveRefreshTimer = () => {

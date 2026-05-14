@@ -853,7 +853,10 @@
     const createBotRoleHelp = document.querySelector('[data-create-bot-role-help]');
     const createBotTitle = document.querySelector('[data-create-bot-title]');
     const createBotDescription = document.querySelector('[data-create-bot-description]');
-    const pollMs = 3000;
+    const BOT_POLL_ACTIVE_MS = 3000;
+    const BOT_POLL_IDLE_MS = 10000;
+    const BOT_POLL_HIDDEN_MS = 30000;
+    const BOT_POLL_JITTER_RATIO = 0.18;
     const recentNotices = new Map();
     const createBotDefaults = {
       upload: {
@@ -887,6 +890,7 @@
     let initialEditBotFunctionValue = 'upload';
     let pollingTimer = null;
     let liveFetchInFlight = false;
+    let lastBotPollHasActiveWork = false;
     let lastPayloadSignature = '';
     let lastEventCursor = tbody ? String(tbody.dataset.initialEventCursor || '').trim() : '';
     let lastEventCreatedAt = tbody ? String(tbody.dataset.initialEventStartedAt || '').trim() : '';
@@ -2451,6 +2455,7 @@
         });
         const items = Array.isArray(payload.items) ? payload.items : [];
         const summaryStrip = Array.isArray(payload.summary_strip) ? payload.summary_strip : [];
+        lastBotPollHasActiveWork = hasActiveBotOperation(items);
         const signature = JSON.stringify({ items, summaryStrip });
         if (signature === lastPayloadSignature) {
           return;
@@ -2467,33 +2472,72 @@
       }
     }
 
+    function hasActiveBotOperation(items) {
+      return Array.isArray(items) && items.some(function (worker) {
+        const operationKind = String(worker && worker.operation_kind ? worker.operation_kind : '').trim();
+        const statusLabel = String(worker && worker.status_label ? worker.status_label : '').toLowerCase();
+        return Boolean(
+          operationKind ||
+          (worker && worker.row_dimmed && worker.actions_disabled) ||
+          statusLabel.includes('cài') ||
+          statusLabel.includes('gỡ') ||
+          statusLabel.includes('đang xử lý') ||
+          statusLabel.includes('chờ đăng ký')
+        );
+      });
+    }
+
+    function nextBotPollDelay() {
+      const baseDelay = document.hidden
+        ? BOT_POLL_HIDDEN_MS
+        : (lastBotPollHasActiveWork ? BOT_POLL_ACTIVE_MS : BOT_POLL_IDLE_MS);
+      return Math.round(baseDelay * (1 + Math.random() * BOT_POLL_JITTER_RATIO));
+    }
+
+    function scheduleLivePoll() {
+      if (pollingTimer) {
+        window.clearTimeout(pollingTimer);
+      }
+      pollingTimer = window.setTimeout(function () {
+        fetchLiveWorkers()
+          .catch(function (error) {
+            console.error(error);
+          })
+          .finally(scheduleLivePoll);
+      }, nextBotPollDelay());
+    }
+
+    function refreshLiveWorkersNow() {
+      if (pollingTimer) {
+        window.clearTimeout(pollingTimer);
+        pollingTimer = null;
+      }
+      fetchLiveWorkers()
+        .catch(function (error) {
+          if (!error || error.name !== 'AbortError') {
+            console.error(error);
+          }
+        })
+        .finally(scheduleLivePoll);
+    }
+
     function ensureLivePollStarted() {
       if (pollingTimer) {
         return;
       }
-      pollingTimer = window.setInterval(function () {
-        fetchLiveWorkers().catch(function (error) {
-          console.error(error);
-        });
-      }, pollMs);
+      scheduleLivePoll();
     }
 
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden) {
-        fetchLiveWorkers().catch(function (error) {
-          if (!error || error.name !== 'AbortError') {
-            console.error(error);
-          }
-        });
+        refreshLiveWorkersNow();
+      } else {
+        scheduleLivePoll();
       }
     });
 
     window.addEventListener('focus', function () {
-      fetchLiveWorkers().catch(function (error) {
-        if (!error || error.name !== 'AbortError') {
-          console.error(error);
-        }
-      });
+      refreshLiveWorkersNow();
     });
 
     lastPayloadSignature = JSON.stringify(

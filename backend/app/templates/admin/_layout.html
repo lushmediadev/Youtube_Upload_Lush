@@ -8,30 +8,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            colors: {
-              brand: {
-                50: '#eef2ff',
-                100: '#e0e7ff',
-                500: '#6b74f0',
-                600: '#5d67df',
-                700: '#4b56c9',
-              }
-            },
-            fontFamily: {
-              sans: ['Inter', 'sans-serif'],
-              display: ['Be Vietnam Pro', 'sans-serif'],
-              mono: ['IBM Plex Mono', 'monospace'],
-            }
-          }
-        }
-      }
-    </script>
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="{{ request.app.url_path_for('static', path='css/admin-tailwind.css') }}?v=20260514-static-tailwind">
+    <script defer src="{{ request.app.url_path_for('static', path='vendor/lucide.min.js') }}?v=1.14.0"></script>
     <style>
       :root {
         color-scheme: light;

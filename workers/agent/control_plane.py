@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import random
 import shutil
 import time
 from dataclasses import dataclass
@@ -241,7 +242,11 @@ def is_worker_deleted_error(exc: Exception) -> bool:
 def _retry_delay_seconds(config: WorkerConfig, attempt: int) -> float:
     capped_attempt = max(0, min(attempt - 1, 6))
     delay = config.network_retry_base_seconds * (2 ** capped_attempt)
-    return max(config.network_retry_base_seconds, min(config.network_retry_max_seconds, delay))
+    bounded_delay = max(config.network_retry_base_seconds, min(config.network_retry_max_seconds, delay))
+    jitter_cap = max(0.0, float(getattr(config, "network_retry_jitter_seconds", 0.0) or 0.0))
+    if jitter_cap <= 0:
+        return bounded_delay
+    return bounded_delay + random.uniform(0.0, jitter_cap)
 
 
 def _request_with_retry(
@@ -256,6 +261,7 @@ def _request_with_retry(
     **kwargs: Any,
 ) -> httpx.Response:
     attempt = 0
+    last_retry_log_at = 0.0
     while True:
         attempt += 1
         try:
@@ -270,11 +276,15 @@ def _request_with_retry(
             if not retry_forever and max_attempts is not None and attempt >= max_attempts:
                 raise
             delay_seconds = _retry_delay_seconds(config, attempt)
-            print(
-                f"[control_plane] {operation} failed (attempt {attempt}): {exc}. "
-                f"retrying in {delay_seconds:.1f}s",
-                flush=True,
-            )
+            now = time.monotonic()
+            log_interval = max(1.0, float(getattr(config, "network_retry_log_interval_seconds", 60.0) or 60.0))
+            if attempt == 1 or now - last_retry_log_at >= log_interval:
+                print(
+                    f"[control_plane] {operation} failed (attempt {attempt}): {exc}. "
+                    f"retrying in {delay_seconds:.1f}s",
+                    flush=True,
+                )
+                last_retry_log_at = now
             time.sleep(delay_seconds)
 
 

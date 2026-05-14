@@ -467,7 +467,11 @@ def _build_worker_env_file(request: WorkerBootstrapRequest) -> str:
             "BROWSER_SESSION_CHROMIUM_BIN=google-chrome-stable",
             "WORKER_NETWORK_RETRY_BASE_SECONDS=3",
             "WORKER_NETWORK_RETRY_MAX_SECONDS=30",
+            "WORKER_NETWORK_RETRY_JITTER_SECONDS=3",
+            "WORKER_NETWORK_RETRY_LOG_INTERVAL_SECONDS=60",
             "WORKER_PROGRESS_RETRY_ATTEMPTS=3",
+            "WORKER_API_JITTER_SECONDS=3",
+            "WORKER_LIVE_BUSY_CLAIM_SECONDS=30",
             "",
         ]
     )

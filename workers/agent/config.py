@@ -67,6 +67,10 @@ class WorkerConfig:
     network_retry_base_seconds: float
     network_retry_max_seconds: float
     progress_retry_attempts: int
+    network_retry_jitter_seconds: float = 3.0
+    network_retry_log_interval_seconds: float = 60.0
+    api_jitter_seconds: float = 3.0
+    live_busy_claim_interval_seconds: float = 30.0
 
 
 def load_config() -> WorkerConfig:
@@ -116,4 +120,8 @@ def load_config() -> WorkerConfig:
         network_retry_base_seconds=float(os.getenv("WORKER_NETWORK_RETRY_BASE_SECONDS", "3")),
         network_retry_max_seconds=float(os.getenv("WORKER_NETWORK_RETRY_MAX_SECONDS", "30")),
         progress_retry_attempts=max(1, int(os.getenv("WORKER_PROGRESS_RETRY_ATTEMPTS", "3"))),
+        network_retry_jitter_seconds=max(0.0, float(os.getenv("WORKER_NETWORK_RETRY_JITTER_SECONDS", "3"))),
+        network_retry_log_interval_seconds=max(1.0, float(os.getenv("WORKER_NETWORK_RETRY_LOG_INTERVAL_SECONDS", "60"))),
+        api_jitter_seconds=max(0.0, float(os.getenv("WORKER_API_JITTER_SECONDS", "3"))),
+        live_busy_claim_interval_seconds=max(5.0, float(os.getenv("WORKER_LIVE_BUSY_CLAIM_SECONDS", "30"))),
     )

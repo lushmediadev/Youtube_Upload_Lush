@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import subprocess
 import textwrap
 import time
@@ -62,6 +63,38 @@ def _janitor_interval_seconds(config) -> float:
     except ValueError:
         return default_interval
     return max(60.0, parsed_value)
+
+
+def _api_jitter_seconds(config) -> float:
+    return max(0.0, float(getattr(config, "api_jitter_seconds", 0.0) or 0.0))
+
+
+def _delay_with_jitter(config, base_seconds: float) -> float:
+    base_delay = max(0.0, float(base_seconds or 0.0))
+    jitter_seconds = _api_jitter_seconds(config)
+    if jitter_seconds <= 0:
+        return base_delay
+    return base_delay + random.uniform(0.0, jitter_seconds)
+
+
+def _sleep_with_jitter(config, base_seconds: float) -> None:
+    time.sleep(_delay_with_jitter(config, base_seconds))
+
+
+def _event_wait_with_jitter(event: Event, config, base_seconds: float) -> bool:
+    return event.wait(timeout=max(0.1, _delay_with_jitter(config, base_seconds)))
+
+
+def _live_busy_claim_interval_seconds(config) -> float:
+    return max(5.0, float(getattr(config, "live_busy_claim_interval_seconds", 30.0) or 30.0))
+
+
+def _should_probe_live_claim(config, *, active_count: int, last_noop_probe_at: float, now: float) -> bool:
+    if active_count <= 0:
+        return True
+    if last_noop_probe_at <= 0:
+        return True
+    return now - last_noop_probe_at >= _live_busy_claim_interval_seconds(config)
 
 
 def simulate_job(client: httpx.Client, config, job: dict) -> None:
@@ -241,7 +274,7 @@ class UploadHeartbeatLoop:
             return list(self._active_ids)
 
     def _run(self) -> None:
-        while not self._stop_event.wait(self.config.heartbeat_seconds):
+        while not _event_wait_with_jitter(self._stop_event, self.config, self.config.heartbeat_seconds):
             try:
                 self.pulse_once()
             except Exception as exc:
@@ -249,7 +282,7 @@ class UploadHeartbeatLoop:
                     print(str(exc), flush=True)
                     break
                 print(f"[worker] heartbeat loop failed: {exc}", flush=True)
-                time.sleep(self.config.poll_seconds)
+                _sleep_with_jitter(self.config, self.config.poll_seconds)
 
 
 class LiveHeartbeatLoop:
@@ -304,7 +337,7 @@ class LiveHeartbeatLoop:
             return list(self._active_ids)
 
     def _run(self) -> None:
-        while not self._stop_event.wait(self.config.heartbeat_seconds):
+        while not _event_wait_with_jitter(self._stop_event, self.config, self.config.heartbeat_seconds):
             try:
                 self.pulse_once()
             except Exception as exc:
@@ -312,7 +345,7 @@ class LiveHeartbeatLoop:
                     print(str(exc), flush=True)
                     break
                 print(f"[live-worker] heartbeat loop failed: {exc}", flush=True)
-                time.sleep(self.config.poll_seconds)
+                _sleep_with_jitter(self.config, self.config.poll_seconds)
 
 
 class LiveExecutionPool:
@@ -416,7 +449,7 @@ def _run_upload_worker(client: httpx.Client, config) -> None:
                     print(f"[browser_sessions] reconcile failed: {exc}", flush=True)
 
                 if not config.simulate_jobs and not config.execute_jobs:
-                    time.sleep(config.poll_seconds)
+                    _sleep_with_jitter(config, config.poll_seconds)
                     continue
 
                 try:
@@ -429,11 +462,11 @@ def _run_upload_worker(client: httpx.Client, config) -> None:
                         print("[worker] claim got 404 worker-missing, re-registering.", flush=True)
                         register_worker(client, config)
                         heartbeat_loop.pulse_once()
-                        time.sleep(config.poll_seconds)
+                        _sleep_with_jitter(config, config.poll_seconds)
                         continue
                     raise
                 if not job:
-                    time.sleep(config.poll_seconds)
+                    _sleep_with_jitter(config, config.poll_seconds)
                     continue
 
                 job_id = str(job["id"])
@@ -448,7 +481,7 @@ def _run_upload_worker(client: httpx.Client, config) -> None:
                 except Exception as exc:
                     if _is_cancelled_job_conflict(exc):
                         print(f"[job] {job['id']} da bi huy tren control plane, dung worker flow sach se.", flush=True)
-                        time.sleep(config.poll_seconds)
+                        _sleep_with_jitter(config, config.poll_seconds)
                         continue
                     fail_job(client, config, job_id, message=str(exc))
                 finally:
@@ -457,13 +490,13 @@ def _run_upload_worker(client: httpx.Client, config) -> None:
                         heartbeat_loop.pulse_once()
                     except Exception as exc:
                         print(f"[worker] post-job heartbeat failed: {exc}", flush=True)
-                time.sleep(config.poll_seconds)
+                _sleep_with_jitter(config, config.poll_seconds)
             except Exception as exc:
                 if is_worker_deleted_error(exc):
                     print("[worker] BOT này đã bị xoá khỏi control-plane, dừng worker.", flush=True)
                     break
                 print(f"[worker] main loop recovered from error: {exc}", flush=True)
-                time.sleep(config.poll_seconds)
+                _sleep_with_jitter(config, config.poll_seconds)
     finally:
         heartbeat_loop.stop()
 
@@ -483,6 +516,7 @@ def _run_live_worker(client: httpx.Client, config) -> None:
     if any(janitor_result.values()):
         print(f"[cleanup] startup janitor: {janitor_result}", flush=True)
     last_janitor_at = time.monotonic()
+    last_noop_claim_probe_at = 0.0
     try:
         while True:
             try:
@@ -494,7 +528,24 @@ def _run_live_worker(client: httpx.Client, config) -> None:
                     last_janitor_at = now
 
                 if not config.simulate_jobs and not config.execute_jobs:
-                    execution_pool.wait(config.poll_seconds)
+                    execution_pool.wait(_delay_with_jitter(config, config.poll_seconds))
+                    continue
+
+                active_count = execution_pool.active_count()
+                loop_now = time.monotonic()
+                if not _should_probe_live_claim(
+                    config,
+                    active_count=active_count,
+                    last_noop_probe_at=last_noop_claim_probe_at,
+                    now=loop_now,
+                ):
+                    remaining_seconds = _live_busy_claim_interval_seconds(config) - (loop_now - last_noop_claim_probe_at)
+                    execution_pool.wait(
+                        min(
+                            _delay_with_jitter(config, config.poll_seconds),
+                            max(0.1, remaining_seconds),
+                        )
+                    )
                     continue
 
                 claimed_any = False
@@ -512,6 +563,8 @@ def _run_live_worker(client: httpx.Client, config) -> None:
                             break
                         raise
                     if not stream:
+                        if execution_pool.active_count() > 0:
+                            last_noop_claim_probe_at = time.monotonic()
                         break
                     stream_id = str(stream["id"])
                     if not execution_pool.start(stream):
@@ -525,7 +578,7 @@ def _run_live_worker(client: httpx.Client, config) -> None:
 
                 if claimed_any:
                     continue
-                execution_pool.wait(config.poll_seconds)
+                execution_pool.wait(_delay_with_jitter(config, config.poll_seconds))
             except Exception as exc:
                 if is_worker_deleted_error(exc):
                     print("[live-worker] BOT này đã bị xoá khỏi control-plane, dừng worker.", flush=True)
@@ -534,7 +587,7 @@ def _run_live_worker(client: httpx.Client, config) -> None:
                     print(str(exc), flush=True)
                     break
                 print(f"[live-worker] main loop recovered from error: {exc}", flush=True)
-                time.sleep(config.poll_seconds)
+                _sleep_with_jitter(config, config.poll_seconds)
     finally:
         execution_pool.join_all()
         heartbeat_loop.stop()

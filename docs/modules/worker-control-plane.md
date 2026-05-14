@@ -31,6 +31,7 @@
 - Tung worker VPS duoc cap cho user/job
 
 ## Invariants
+- Worker API loop co jitter/backoff de tranh nhieu worker cung heartbeat/claim dung mot nhip. Live worker dang ban chi probe `claim_live_stream` day hon khi vua thay khong co job moi, nhung status/progress/failover event van day len control-plane ngay khi co thay doi.
 - Worker la outbound-only; control plane khong push stateful browser runtime vao chinh no.
 - Live worker la local supervisor cho ffmpeg/live runtime; control-plane miss heartbeat/lease ban dau chi la telemetry stale, khong phai bang chung runtime da chet.
 - Neu primary live co backup va telemetry stale qua `LIVE_TELEMETRY_FAILOVER_SECONDS` (mac dinh 180s), control-plane moi release primary claim de backup takeover va gui ops Telegram.

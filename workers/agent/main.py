@@ -89,6 +89,21 @@ def _live_busy_claim_interval_seconds(config) -> float:
     return max(5.0, float(getattr(config, "live_busy_claim_interval_seconds", 30.0) or 30.0))
 
 
+def _decommission_poll_interval_seconds(config) -> float:
+    return max(10.0, float(getattr(config, "decommission_poll_seconds", 60.0) or 60.0))
+
+
+def _browser_session_poll_interval_seconds(config, browser_sessions) -> float:
+    configured_interval = max(5.0, float(getattr(config, "browser_session_poll_seconds", 15.0) or 15.0))
+    if getattr(browser_sessions, "local_sessions", None):
+        return min(configured_interval, max(1.0, float(getattr(config, "poll_seconds", 5.0) or 5.0)))
+    return configured_interval
+
+
+def _should_run_periodic(*, now: float, last_run_at: float, interval_seconds: float) -> bool:
+    return last_run_at <= 0.0 or now - last_run_at >= interval_seconds
+
+
 def _should_probe_live_claim(config, *, active_count: int, last_noop_probe_at: float, now: float) -> bool:
     if active_count <= 0:
         return True
@@ -432,21 +447,36 @@ def _run_upload_worker(client: httpx.Client, config) -> None:
     if any(janitor_result.values()):
         print(f"[cleanup] startup janitor: {janitor_result}", flush=True)
     last_janitor_at = time.monotonic()
+    last_decommission_poll_at = 0.0
+    last_browser_session_poll_at = 0.0
     try:
         while True:
             try:
-                _maybe_process_decommission(client, config, heartbeat_loop)
                 now = time.monotonic()
+                if _should_run_periodic(
+                    now=now,
+                    last_run_at=last_decommission_poll_at,
+                    interval_seconds=_decommission_poll_interval_seconds(config),
+                ):
+                    last_decommission_poll_at = now
+                    _maybe_process_decommission(client, config, heartbeat_loop)
+
                 if now - last_janitor_at >= janitor_interval_seconds:
                     janitor_result = cleanup_stale_worker_artifacts(config)
                     if any(janitor_result.values()):
                         print(f"[cleanup] periodic janitor: {janitor_result}", flush=True)
                     last_janitor_at = now
 
-                try:
-                    browser_sessions.reconcile(client)
-                except Exception as exc:
-                    print(f"[browser_sessions] reconcile failed: {exc}", flush=True)
+                if _should_run_periodic(
+                    now=now,
+                    last_run_at=last_browser_session_poll_at,
+                    interval_seconds=_browser_session_poll_interval_seconds(config, browser_sessions),
+                ):
+                    last_browser_session_poll_at = now
+                    try:
+                        browser_sessions.reconcile(client)
+                    except Exception as exc:
+                        print(f"[browser_sessions] reconcile failed: {exc}", flush=True)
 
                 if not config.simulate_jobs and not config.execute_jobs:
                     _sleep_with_jitter(config, config.poll_seconds)

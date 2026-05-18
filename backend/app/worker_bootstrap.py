@@ -432,6 +432,8 @@ def _build_worker_env_file(request: WorkerBootstrapRequest) -> str:
             f"WORKER_THREADS={request.threads}",
             f"WORKER_HEARTBEAT_SECONDS={request.heartbeat_seconds}",
             f"WORKER_POLL_SECONDS={request.poll_seconds}",
+            "WORKER_BROWSER_SESSION_POLL_SECONDS=15",
+            "WORKER_DECOMMISSION_POLL_SECONDS=60",
             "APP_TIMEZONE=Asia/Ho_Chi_Minh",
             "WORKER_SIMULATE_JOBS=false",
             "WORKER_EXECUTE_JOBS=true",

@@ -22,6 +22,8 @@ def make_config(work_root: Path) -> WorkerConfig:
         threads=1,
         heartbeat_seconds=15,
         poll_seconds=5,
+        browser_session_poll_seconds=15,
+        decommission_poll_seconds=60,
         simulate_jobs=False,
         execute_jobs=True,
         simulate_step_seconds=1.0,

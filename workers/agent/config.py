@@ -37,6 +37,8 @@ class WorkerConfig:
     threads: int
     heartbeat_seconds: int
     poll_seconds: int
+    browser_session_poll_seconds: float
+    decommission_poll_seconds: float
     simulate_jobs: bool
     execute_jobs: bool
     simulate_step_seconds: float
@@ -90,6 +92,8 @@ def load_config() -> WorkerConfig:
         threads=int(os.getenv("WORKER_THREADS", "1")),
         heartbeat_seconds=int(os.getenv("WORKER_HEARTBEAT_SECONDS", "15")),
         poll_seconds=int(os.getenv("WORKER_POLL_SECONDS", "5")),
+        browser_session_poll_seconds=max(5.0, float(os.getenv("WORKER_BROWSER_SESSION_POLL_SECONDS", "15"))),
+        decommission_poll_seconds=max(10.0, float(os.getenv("WORKER_DECOMMISSION_POLL_SECONDS", "60"))),
         simulate_jobs=os.getenv("WORKER_SIMULATE_JOBS", "false").strip().lower() in {"1", "true", "yes", "on"},
         execute_jobs=os.getenv("WORKER_EXECUTE_JOBS", "false").strip().lower() in {"1", "true", "yes", "on"},
         simulate_step_seconds=float(os.getenv("WORKER_SIMULATE_STEP_SECONDS", "2.5")),

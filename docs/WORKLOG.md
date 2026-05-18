@@ -125,8 +125,8 @@
 - [x] Backup toan bo dirty worktree local chua commit ra D:\Youtube_BOT_UPLOAD__local_backup_20260330-112534 de tranh mat thay doi khi dong bo nguoc tu VPS.
 - [x] Dang nhap 82.197.71.6, dong goi source dang chay trong /opt/youtube-upload-lush thanh tar loai tru .env*, .venv, ackend/app/data, worker-data, .backup, __pycache__, log; keo ve local va extract ra D:\Youtube_BOT_UPLOAD__vps_source_20260330.
 - [x] Tao clean worktree D:\Youtube_BOT_UPLOAD__sync_main, doi chieu voi main 6443674, va xac nhan sync tu VPS phat sinh 22 file tracked can cap nhat; khong mirror YoutubeBOTUpload-master hay cac file backup .bak-*.
-- [x] Verify clean worktree bang python -m compileall backend/app, python -m compileall workers/agent, 
-ode --check backend/app/static/js/user_dashboard.js, 
+- [x] Verify clean worktree bang python -m compileall backend/app, python -m compileall workers/agent,
+ode --check backend/app/static/js/user_dashboard.js,
 ode --check backend/app/static/js/admin_tables.js.
 ### 2026-03-30 14:36
 - [x] Xac nhan lai sau cutover: control-plane tra pi/health = 200 va ca 2 worker tro lai trang thai online trong SQLite snapshot.
@@ -211,8 +211,9 @@ ode --check backend/app/static/js/admin_tables.js.
 - [2026-04-01 10:05] Restart lai uvicorn local sau smoke test de reset state in-memory ve dung DB tren disk, tranh local bi lech do cac bai test submit truoc do.
 - [2026-04-01 10:05] Deploy 6 file thay doi len /opt/youtube-upload-lush tren VPS 82.197.71.6, compile backend/app bang python3, restart youtube-upload-web.service, va verify /api/health tra {"status":"ok"}.
 - [2026-04-01 10:35] Doi label action BOT tren bang user ve cung mot cach goi BOT, loai placeholder text du thua trong panel phai man Cap phat BOT, va viet lai live script cua Cụm BOT VPS de chi bam sat HTML/JSON row hien tai.
-- [2026-04-01 10:35] Bo sung helper _clear_worker_channels() trong store; khi update/gỡ/đổi BOT qua update_bot, econcile_assignment_target_bots, hoac delete_bot thi xoa sach channel, channel-user link, job artifact va browser-profile cleanup tren BOT cu.
-- [2026-04-01 10:35] Verify bang python -m compileall backend/app, 
+- [2026-04-01 10:35] Bo sung helper _clear_worker_channels() trong store; khi update/gỡ/đổi BOT qua update_bot,
+econcile_assignment_target_bots, hoac delete_bot thi xoa sach channel, channel-user link, job artifact va browser-profile cleanup tren BOT cu.
+- [2026-04-01 10:35] Verify bang python -m compileall backend/app,
 ode --check cho inline JS cua worker_index, HTTP smoke local (/admin/ManagerBOT/index, /admin/user/index, /api/admin/bots deu 200), va 2 bai test rollback xac nhan go/doi BOT deu xoa het channel tren BOT cu.
 
 - [2026-04-01 11:05] Bo han BOT preview 168.119.229.109 / VPS-003 khoi context va UI cap phat BOT; tong BOT tren man nay gio chi dem du lieu that tu store.
@@ -765,3 +766,4 @@ ode --check cho inline JS cua worker_index, HTTP smoke local (/admin/ManagerBOT/
 - [2026-05-14] Reduced client polling pressure from open dashboard tabs. `worker_index.html` switched the BOT list refresher from fixed `setInterval(3000)` to adaptive `setTimeout` with jitter, `user_dashboard.js` now polls active upload/browser work every ~2s but backs off to ~10s idle and ~30s hidden, and `user_live_dashboard.html` backs off live list refreshes to ~15s when no active rows need close tracking. Verified with `node --check backend/app/static/js/user_dashboard.js` and `python -m compileall backend/app`.
 - [2026-05-14] Fixed the user-management avatar regression introduced by the static Tailwind bundle. `_avatar_palette()` returns dynamic classes such as `bg-violet-500`, `bg-fuchsia-500`, `bg-teal-500`, `bg-emerald-500`, and `bg-amber-500`; added those classes to `tailwind.admin.config.js`, rebuilt `backend/app/static/css/admin-tailwind.css`, and bumped the admin CSS cache key so user rows and manager picker options render colored initials again.
 - [2026-05-14] Aligned upload `Verify it's you` Telegram copy with the Studio access feature. `_summarize_job_upload_error_message()` now tells the user to open `Truy cập Studio`, select the channel, verify the saved Chrome profile on the VPS, and rerun the job instead of deleting and re-adding the channel. Updated the upload interruption regression test accordingly.
+- [2026-05-18] Tuned upload-worker auxiliary polling after checking production had 42 upload workers and only one active upload job. Added dedicated intervals for browser-session and decommission polling while leaving `claim_job` and heartbeat responsiveness unchanged; verified with focused pytest and compileall.

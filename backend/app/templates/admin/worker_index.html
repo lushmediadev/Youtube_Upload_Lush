@@ -310,6 +310,7 @@
                         <th class="w-[78px]" data-admin-sort-label="Local">Local</th>
                         <th class="w-[104px]" data-admin-sort-label="Tr&#7841;ng th&#225;i">Tr&#7841;ng th&#225;i</th>
                         <th class="w-[114px]" data-admin-sort-label="Ng&#224;y t&#7841;o">Ng&#224;y t&#7841;o</th>
+                        <th class="w-[104px]" data-admin-sort-label="Kh&#244;ng ho&#7841;t &#273;&#7897;ng">Kh&#244;ng ho&#7841;t &#273;&#7897;ng</th>
                         <th class="w-[78px]" data-admin-sort-label="Lu&#7891;ng live/upload">Lu&#7891;ng live/upload</th>
                         <th class="w-[82px]" data-admin-sort-label="S&#7889; user">S&#7889; user</th>
                         <th class="w-[64px]" data-admin-sort-label="CPU">CPU</th>
@@ -338,11 +339,11 @@
                         data-worker-row-id="{{ worker.id }}"
                         data-workspace-kind="{{ worker_workspace_kind }}"
                         class="{% if worker.row_dimmed and not compact_operation_row %}bg-slate-50/70 opacity-80{% endif %}"
-                        data-search-text="{{ worker.bot_id }} {{ worker.name }} {{ worker.group }} {{ worker.bot_type_label }} {{ worker.local }} {{ worker.manager_name }} {{ worker.assigned_user_name }} {{ worker.assigned_user_names_text }} {{ worker.created_at }} {{ worker.ram_text }} {{ worker.disk_text }} {{ worker.bandwidth_text }} {{ worker.space_text }} {{ worker.workload_text }} {{ worker.cpu_percent }}"
+                        data-search-text="{{ worker.bot_id }} {{ worker.name }} {{ worker.group }} {{ worker.bot_type_label }} {{ worker.local }} {{ worker.manager_name }} {{ worker.assigned_user_name }} {{ worker.assigned_user_names_text }} {{ worker.created_at }} {{ worker.inactive_days_label }} {{ worker.ram_text }} {{ worker.disk_text }} {{ worker.bandwidth_text }} {{ worker.space_text }} {{ worker.workload_text }} {{ worker.cpu_percent }}"
                     >
                         <td class="table-mono text-slate-500">{{ worker.index }}</td>
                         {% if compact_operation_row %}
-                        <td colspan="13" class="py-3">
+                        <td colspan="14" class="py-3">
                             <div class="rounded-[18px] border px-4 py-3 {{ operation_shell_class }}">
                                 <div class="flex items-start gap-3">
                                     <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl {{ operation_icon_class }}">
@@ -382,6 +383,18 @@
                         <td class="table-mono text-slate-600">
                             <p>{{ created_parts[0] if created_parts and created_parts[0] else '--' }}</p>
                             <p class="mt-1 text-[11px] text-slate-500">{{ ' '.join(created_parts[1:]) if created_parts|length > 1 else '--' }}</p>
+                        </td>
+                        <td
+                            class="table-mono text-[11px] font-semibold leading-relaxed {% if worker.inactive_days_alert %}text-rose-600{% else %}text-slate-400{% endif %}"
+                            data-sort-value="{{ worker.inactive_days or 0 }}"
+                        >
+                            {% if worker.inactive_users %}
+                                {% for item in worker.inactive_users %}
+                                <p>{{ item.username }}: {{ item.days }} ng&#224;y</p>
+                                {% endfor %}
+                            {% else %}
+                                -
+                            {% endif %}
                         </td>
                         <td>
                             <div class="space-y-1">
@@ -1406,6 +1419,8 @@
         worker.assigned_user_name,
         worker.assigned_user_names_text,
         worker.created_at,
+        worker.inactive_days_label,
+        worker.inactive_days,
         worker.total_channels,
         worker.total_users,
         worker.ram_text,
@@ -1509,7 +1524,7 @@
       return [
         '<tr data-worker-row-id="', workerId, '" data-search-text="', searchText, '">',
         '  <td class="table-mono text-slate-500">', escapeHtml(worker.index), '</td>',
-        '  <td colspan="13" class="py-3">',
+        '  <td colspan="14" class="py-3">',
         '    <div class="rounded-[18px] border px-4 py-3 ', visual.shell, '">',
         '      <div class="flex items-start gap-3">',
         '        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ', visual.icon, '">',
@@ -1598,6 +1613,14 @@
       const spaceText = escapeHtml(worker.space_text || diskText);
       const cpuPercent = clampPercent(worker.cpu_percent);
       const createdAt = splitDateTime(worker.created_at);
+      const inactiveDays = Number(worker.inactive_days || 0);
+      const inactiveUsers = Array.isArray(worker.inactive_users) ? worker.inactive_users : [];
+      const inactiveDaysMarkup = inactiveUsers.length
+        ? inactiveUsers.map(function (item) {
+            return '<p>' + escapeHtml(item.username || '-') + ': ' + escapeHtml(item.days || 0) + ' ng&#224;y</p>';
+          }).join('')
+        : '-';
+      const inactiveDaysClass = inactiveUsers.length ? 'text-rose-600' : 'text-slate-400';
       const totalUsers = escapeHtml(worker.total_users || 0);
       const botCellMeta = escapeHtml(worker.manager_name || '--');
       const botTypeLabel = escapeHtml(worker.bot_type_label || (normalizeWorkspaceKind(worker.workspace_kind) === 'live' ? 'Live' : 'Upload'));
@@ -1629,6 +1652,7 @@
         '  <td data-sort-value="', workerLocal, '"><span class="worker-local-badge">', workerLocalDisplay, '</span></td>',
         '  <td><span class="', statusClass, '">', statusLabel, '</span></td>',
         '  <td class="table-mono text-slate-600"><p>', escapeHtml(createdAt.date), '</p><p class="mt-1 text-[11px] text-slate-500">', escapeHtml(createdAt.time), '</p></td>',
+        '  <td class="table-mono text-[11px] font-semibold leading-relaxed ', inactiveDaysClass, '" data-sort-value="', String(inactiveDays), '">', inactiveDaysMarkup, '</td>',
         '  <td><div class="space-y-1"><span class="inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ', workloadTone, '">', workloadText, '</span><p class="worker-metric-note">', workloadNote, '</p></div></td>',
         '  <td>', renderCountBadge(totalUsers, 'border-sky-100 bg-sky-50 text-sky-700', 'user'), '</td>',
         '  <td><p class="table-mono font-semibold text-slate-800">', String(cpuPercent), '%</p></td>',

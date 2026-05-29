@@ -3269,6 +3269,129 @@ class AppStore:
             "inactive_days": inactive_days,
         }
 
+    def _activity_inactive_days(self, activity_at: datetime | None, *, now: datetime) -> int:
+        normalized_activity_at = self._normalize_datetime(activity_at) if activity_at is not None else None
+        normalized_now = self._normalize_datetime(now) or self._now(trim=False)
+        return max(0, (normalized_now - normalized_activity_at).days) if normalized_activity_at else 0
+
+    def _bot_row_inactivity_context(self) -> dict[str, dict[tuple[str, str, str], datetime]]:
+        upload_worker_alias_to_id: dict[str, str] = {}
+        for worker in self.workers:
+            for alias in self._worker_aliases(worker):
+                upload_worker_alias_to_id[alias] = worker.id
+
+        channel_by_id = {channel.id: channel for channel in self.channels}
+        channel_user_ids: dict[str, set[str]] = {}
+        for link in self.channel_user_links:
+            channel_id = str(link.get("channel_id") or "").strip()
+            user_id = str(link.get("user_id") or "").strip()
+            if channel_id and user_id:
+                channel_user_ids.setdefault(channel_id, set()).add(user_id)
+
+        upload_last_by_key: dict[tuple[str, str, str], datetime] = {}
+        for job in self.jobs:
+            channel = channel_by_id.get(job.channel_id)
+            if channel is None:
+                continue
+            user_ids = channel_user_ids.get(channel.id)
+            if not user_ids:
+                continue
+            channel_worker_id = upload_worker_alias_to_id.get(str(channel.worker_id or "").strip())
+            if not channel_worker_id:
+                continue
+            job_worker_name = str(job.worker_name or "").strip()
+            job_worker_id = upload_worker_alias_to_id.get(job_worker_name)
+            if job_worker_name and job_worker_id and job_worker_id != channel_worker_id:
+                continue
+            for user_id in user_ids:
+                key = (user_id, channel_worker_id, "upload")
+                upload_last_by_key[key] = max(upload_last_by_key.get(key, job.created_at), job.created_at)
+
+        live_last_by_key: dict[tuple[str, str, str], datetime] = {}
+        for stream in self.live_streams:
+            if bool(stream.is_runtime_clone):
+                continue
+            user_id = str(stream.owner_user_id or "").strip()
+            if not user_id:
+                continue
+            primary_worker_id = str(stream.primary_worker_id or "").strip()
+            if primary_worker_id:
+                key = (user_id, primary_worker_id, "primary")
+                live_last_by_key[key] = max(live_last_by_key.get(key, stream.created_at), stream.created_at)
+            backup_worker_id = str(stream.backup_worker_id or "").strip()
+            if backup_worker_id:
+                key = (user_id, backup_worker_id, "backup")
+                live_last_by_key[key] = max(live_last_by_key.get(key, stream.created_at), stream.created_at)
+
+        return {"upload": upload_last_by_key, "live": live_last_by_key}
+
+    def _bot_row_inactivity_summary(
+        self,
+        *,
+        worker: WorkerRecord,
+        assigned_users: list[UserSummary],
+        workspace: str,
+        now: datetime,
+        activity_context: dict[str, dict[tuple[str, str, str], datetime]] | None = None,
+    ) -> dict[str, Any]:
+        assigned_user_by_id = {user.id: user for user in assigned_users}
+        threshold_days = self._inactive_bot_alert_days()
+        inactive_by_user_id: dict[str, dict[str, Any]] = {}
+        context = activity_context or self._bot_row_inactivity_context()
+
+        if workspace == "live":
+            for link in self.live_user_worker_links:
+                user_id = str(link.get("user_id") or "").strip()
+                if str(link.get("worker_id") or "").strip() != worker.id or user_id not in assigned_user_by_id:
+                    continue
+                live_role = self._normalize_live_assignment_role(link.get("live_role"), fallback_note=link.get("note"))
+                assignment_created_at = self._assignment_created_at(link, worker)
+                last_job_created_at = context["live"].get((user_id, worker.id, live_role))
+                activity_at = max(
+                    [value for value in (last_job_created_at, assignment_created_at) if value is not None],
+                    default=None,
+                )
+                inactive_days = self._activity_inactive_days(activity_at, now=now)
+                if inactive_days > threshold_days:
+                    current = inactive_by_user_id.get(user_id)
+                    if current is None or inactive_days > int(current.get("days") or 0):
+                        inactive_by_user_id[user_id] = {
+                            "username": assigned_user_by_id[user_id].username,
+                            "days": inactive_days,
+                        }
+        else:
+            for link in self.user_worker_links:
+                user_id = str(link.get("user_id") or "").strip()
+                if str(link.get("worker_id") or "").strip() != worker.id or user_id not in assigned_user_by_id:
+                    continue
+                assignment_created_at = self._assignment_created_at(link, worker)
+                last_job_created_at = context["upload"].get((user_id, worker.id, "upload"))
+                activity_at = max(
+                    [value for value in (last_job_created_at, assignment_created_at) if value is not None],
+                    default=None,
+                )
+                inactive_days = self._activity_inactive_days(activity_at, now=now)
+                if inactive_days > threshold_days:
+                    inactive_by_user_id[user_id] = {
+                        "username": assigned_user_by_id[user_id].username,
+                        "days": inactive_days,
+                    }
+
+        inactive_users = sorted(
+            inactive_by_user_id.values(),
+            key=lambda item: (-int(item.get("days") or 0), str(item.get("username") or "")),
+        )
+        inactive_days = max([int(item.get("days") or 0) for item in inactive_users], default=0)
+        return {
+            "inactive_days": inactive_days,
+            "inactive_days_label": "\n".join(
+                f"{item.get('username')}: {int(item.get('days') or 0)} ngày"
+                for item in inactive_users
+            ),
+            "inactive_days_alert": bool(inactive_users),
+            "inactive_users": inactive_users,
+        }
+
     def get_inactive_bot_allocations(
         self,
         *,
@@ -11804,6 +11927,10 @@ class AppStore:
             "status_label": status_label,
             "status_class": status_class,
             "created_at": self._format_full_datetime(self._parse_datetime(task.get("created_at"))),
+            "inactive_days": 0,
+            "inactive_days_label": "",
+            "inactive_days_alert": False,
+            "inactive_users": [],
             "total_channels": 0,
             "total_users": 0,
             "thread_text": workload_text,
@@ -11902,6 +12029,8 @@ class AppStore:
 
     def _build_bot_rows(self, manager_ids: list[str] | None = None, *, workspace_mode: str = "upload") -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
+        now = self._now(trim=False)
+        inactivity_context = self._bot_row_inactivity_context()
         workspace_order = ["upload", "live"]
         operation_by_workspace: dict[str, dict[str, dict[str, Any]]] = {}
         operation_tasks_by_workspace: dict[str, list[dict[str, Any]]] = {}
@@ -11958,6 +12087,13 @@ class AppStore:
                     if is_live_workspace
                     else self._resolve_worker_display_name(worker.id)
                 )
+                inactivity_summary = self._bot_row_inactivity_summary(
+                    worker=worker,
+                    assigned_users=assigned_users,
+                    workspace=current_workspace_kind,
+                    now=now,
+                    activity_context=inactivity_context,
+                )
                 connection_profile = dict(self.worker_connection_profiles.get(worker.id) or {})
                 worker_local = str(getattr(worker, "local", None) or "").strip()
                 assigned_user_ids = [user.id for user in assigned_users]
@@ -12001,6 +12137,10 @@ class AppStore:
                     "status_label": status_label,
                     "status_class": status_class,
                     "created_at": self._format_full_datetime(worker.created_at or worker.last_seen_at),
+                    "inactive_days": inactivity_summary["inactive_days"],
+                    "inactive_days_label": inactivity_summary["inactive_days_label"],
+                    "inactive_days_alert": inactivity_summary["inactive_days_alert"],
+                    "inactive_users": inactivity_summary["inactive_users"],
                     "total_channels": 0 if is_live_workspace else len([channel for channel in self.channels if channel.worker_id == worker.id]),
                     "total_users": len(
                         [

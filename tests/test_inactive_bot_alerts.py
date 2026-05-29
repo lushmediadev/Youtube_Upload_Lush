@@ -197,6 +197,49 @@ class InactiveBotAlertTests(unittest.TestCase):
             },
         )
 
+    def test_bot_rows_only_show_users_inactive_over_threshold(self) -> None:
+        old = self.now - timedelta(days=20)
+        recent = self.now - timedelta(days=2)
+        stale_job = self.now - timedelta(days=12)
+        self.store._now = lambda trim=True: self.now
+        self.store.users.append(
+            UserSummary(
+                id="user-2",
+                username="active-user",
+                display_name="Active User",
+                role="user",
+                manager_id="manager-1",
+                manager_name="manager-alpha",
+            )
+        )
+        self.store.user_meta["user-2"] = {"telegram": ""}
+        self.store.workers = [
+            make_worker("worker-upload-mixed", "manager-1", "manager-alpha", old),
+        ]
+        self.store.user_worker_links = [
+            {"id": 1, "user_id": "user-1", "worker_id": "worker-upload-mixed", "created_at": old},
+            {"id": 2, "user_id": "user-2", "worker_id": "worker-upload-mixed", "created_at": old},
+        ]
+        self.store.channels = [
+            make_channel("channel-stale", "worker-upload-mixed", "manager-alpha"),
+            make_channel("channel-active", "worker-upload-mixed", "manager-alpha"),
+        ]
+        self.store.channel_user_links = [
+            {"id": 1, "channel_id": "channel-stale", "user_id": "user-1"},
+            {"id": 2, "channel_id": "channel-active", "user_id": "user-2"},
+        ]
+        self.store.jobs = [
+            make_job("job-stale", "channel-stale", "worker-upload-mixed", stale_job),
+            make_job("job-active", "channel-active", "worker-upload-mixed", recent),
+        ]
+
+        rows = self.store._build_bot_rows()
+
+        self.assertEqual(rows[0]["inactive_days"], 12)
+        self.assertTrue(rows[0]["inactive_days_alert"])
+        self.assertEqual(rows[0]["inactive_days_label"], "demo-user: 12 ngày")
+        self.assertEqual(rows[0]["inactive_users"], [{"username": "demo-user", "days": 12}])
+
     def test_daily_alert_routes_all_inactive_bots_to_admin_and_only_owned_bots_to_each_manager(self) -> None:
         old = self.now - timedelta(days=20)
         self.store.users.append(

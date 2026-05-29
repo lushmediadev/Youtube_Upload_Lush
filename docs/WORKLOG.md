@@ -1,5 +1,10 @@
 ﻿# Worklog
 
+### 2026-05-29
+- [x] Changed the admin BOT `Không hoạt động` column to use a daily snapshot refreshed after the 8h inactive-BOT alert window instead of recalculating on every table poll.
+- [x] Kept the column compact by only showing assigned users over the inactive threshold and rendering the full `username: N ngày` entry in red.
+- [x] Verified with `python -m pytest tests\test_inactive_bot_alerts.py tests\test_bot_local.py`, `python -m compileall backend\app`, and `git diff --check`.
+
 ### 2026-05-12
 - [x] Tạm tắt live normalize theo yêu cầu vận hành: default/source env chuyển sang `WORKER_LIVE_NORMALIZE_ENABLED=false`, còn toàn bộ profile `1080p/1440p/2160p` vẫn giữ nguyên để bật lại bằng env khi cần.
 - [x] Thêm regression test xác nhận worker live mới không tự bật normalize nếu không set env.

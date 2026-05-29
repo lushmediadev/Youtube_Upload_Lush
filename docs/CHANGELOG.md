@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+### 2026-05-29 00:00 - Daily inactive BOT table snapshot
+- Changed: The admin BOT table now reads `Không hoạt động` from a daily snapshot refreshed once after the inactive-BOT alert time instead of recalculating on every table poll.
+- Fixed: Inactive user entries over the threshold render the full `username: N ngày` line in red for both initial Jinja render and AJAX table refreshes.
+- Affected files: `backend/app/store.py`, `backend/app/templates/admin/worker_index.html`, `tests/test_inactive_bot_alerts.py`
+- Impact/Risk: Low; control-plane-only UI/state change, no worker restart required.
+
 ### 2026-05-12 10:00 - Temporarily disable live normalize
 - Changed: Live normalize is now disabled by default through `WORKER_LIVE_NORMALIZE_ENABLED=false`; bitrate/resolution inspection remains in code but is skipped unless the env is explicitly enabled again.
 - Kept: The existing `2160p` profile variables remain available for later re-enable: `WORKER_LIVE_NORMALIZE_MAX_HEIGHT=2160`, `WORKER_LIVE_NORMALIZE_2160_MAXRATE_KBPS=20000`, `WORKER_LIVE_NORMALIZE_2160_CRF=21`.

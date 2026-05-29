@@ -240,6 +240,16 @@ class InactiveBotAlertTests(unittest.TestCase):
         self.assertEqual(rows[0]["inactive_days_label"], "demo-user: 12 ngày")
         self.assertEqual(rows[0]["inactive_users"], [{"username": "demo-user", "days": 12}])
 
+        self.store.jobs.append(make_job("job-now", "channel-stale", "worker-upload-mixed", self.now))
+        self.store._now = lambda trim=True: datetime(2026, 5, 4, 8, 30)
+        rows = self.store._build_bot_rows()
+        self.assertEqual(rows[0]["inactive_users"], [{"username": "demo-user", "days": 12}])
+
+        self.store._now = lambda trim=True: datetime(2026, 5, 5, 8, 5)
+        rows = self.store._build_bot_rows()
+        self.assertEqual(rows[0]["inactive_days"], 0)
+        self.assertEqual(rows[0]["inactive_users"], [])
+
     def test_daily_alert_routes_all_inactive_bots_to_admin_and_only_owned_bots_to_each_manager(self) -> None:
         old = self.now - timedelta(days=20)
         self.store.users.append(

@@ -390,7 +390,7 @@
                         >
                             {% if worker.inactive_users %}
                                 {% for item in worker.inactive_users %}
-                                <p>{{ item.username }}: {{ item.days }} ng&#224;y</p>
+                                <p class="text-rose-600">{{ item.username }}: {{ item.days }} ng&#224;y</p>
                                 {% endfor %}
                             {% else %}
                                 -
@@ -1617,7 +1617,7 @@
       const inactiveUsers = Array.isArray(worker.inactive_users) ? worker.inactive_users : [];
       const inactiveDaysMarkup = inactiveUsers.length
         ? inactiveUsers.map(function (item) {
-            return '<p>' + escapeHtml(item.username || '-') + ': ' + escapeHtml(item.days || 0) + ' ng&#224;y</p>';
+            return '<p class="text-rose-600">' + escapeHtml(item.username || '-') + ': ' + escapeHtml(item.days || 0) + ' ng&#224;y</p>';
           }).join('')
         : '-';
       const inactiveDaysClass = inactiveUsers.length ? 'text-rose-600' : 'text-slate-400';

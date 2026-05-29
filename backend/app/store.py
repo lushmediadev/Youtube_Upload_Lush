@@ -421,6 +421,9 @@ class AppStore:
         self._monitor_thread: Thread | None = None
         self.inactive_bot_alert_last_sent_on: str | None = None
         self.inactive_bot_alert_last_attempted_on: str | None = None
+        self.inactive_bot_table_snapshot_date: str | None = None
+        self.inactive_bot_table_snapshot_threshold_days: int | None = None
+        self.inactive_bot_table_snapshot: dict[str, dict[str, Any]] = {}
 
         self.users = [
             UserSummary(id="admin-1", username="admin", display_name="Admin", role="admin"),
@@ -1132,6 +1135,9 @@ class AppStore:
             "deleted_workers": self._serialize_value(self.deleted_workers),
             "inactive_bot_alert_last_sent_on": self.inactive_bot_alert_last_sent_on,
             "inactive_bot_alert_last_attempted_on": self.inactive_bot_alert_last_attempted_on,
+            "inactive_bot_table_snapshot_date": self.inactive_bot_table_snapshot_date,
+            "inactive_bot_table_snapshot_threshold_days": self.inactive_bot_table_snapshot_threshold_days,
+            "inactive_bot_table_snapshot": self._serialize_value(self.inactive_bot_table_snapshot),
             "render_delete_meta": self._serialize_value(self.render_delete_meta),
         }
 
@@ -1176,6 +1182,20 @@ class AppStore:
         self.inactive_bot_alert_last_attempted_on = (
             str(payload.get("inactive_bot_alert_last_attempted_on") or "").strip() or None
         )
+        self.inactive_bot_table_snapshot_date = (
+            str(payload.get("inactive_bot_table_snapshot_date") or "").strip() or None
+        )
+        try:
+            self.inactive_bot_table_snapshot_threshold_days = int(
+                payload.get("inactive_bot_table_snapshot_threshold_days")
+            )
+        except (TypeError, ValueError):
+            self.inactive_bot_table_snapshot_threshold_days = None
+        self.inactive_bot_table_snapshot = {
+            str(key or "").strip(): dict(value)
+            for key, value in (payload.get("inactive_bot_table_snapshot") or {}).items()
+            if str(key or "").strip() and isinstance(value, dict)
+        }
 
         render_meta = payload.get("render_delete_meta") or {}
         self.render_delete_meta = {
@@ -3392,6 +3412,91 @@ class AppStore:
             "inactive_users": inactive_users,
         }
 
+    @staticmethod
+    def _empty_bot_row_inactivity_summary() -> dict[str, Any]:
+        return {
+            "inactive_days": 0,
+            "inactive_days_label": "",
+            "inactive_days_alert": False,
+            "inactive_users": [],
+        }
+
+    @staticmethod
+    def _bot_row_inactivity_snapshot_key(workspace: str, worker_id: str) -> str:
+        return f"{str(workspace or '').strip()}:{str(worker_id or '').strip()}"
+
+    def _inactive_bot_table_snapshot_due(self, *, now: datetime) -> bool:
+        normalized_now = self._normalize_datetime(now) or self._now(trim=False)
+        today_key = normalized_now.date().isoformat()
+        threshold_days = self._inactive_bot_alert_days()
+        scheduled_at = normalized_now.replace(
+            hour=self._inactive_bot_alert_hour(),
+            minute=self._inactive_bot_alert_minute(),
+            second=0,
+            microsecond=0,
+        )
+        if normalized_now < scheduled_at:
+            return False
+        if str(self.inactive_bot_table_snapshot_date or "").strip() != today_key:
+            return True
+        return int(self.inactive_bot_table_snapshot_threshold_days or 0) != threshold_days
+
+    def _build_inactive_bot_table_snapshot(self, *, now: datetime) -> dict[str, dict[str, Any]]:
+        context = self._bot_row_inactivity_context()
+        snapshot: dict[str, dict[str, Any]] = {}
+        for worker in self.workers:
+            assigned_users = self._assigned_users_for_worker(worker.id)
+            snapshot[self._bot_row_inactivity_snapshot_key("upload", worker.id)] = self._bot_row_inactivity_summary(
+                worker=worker,
+                assigned_users=assigned_users,
+                workspace="upload",
+                now=now,
+                activity_context=context,
+            )
+        for worker in self.live_workers:
+            assigned_users = self._assigned_live_users_for_worker(worker.id)
+            snapshot[self._bot_row_inactivity_snapshot_key("live", worker.id)] = self._bot_row_inactivity_summary(
+                worker=worker,
+                assigned_users=assigned_users,
+                workspace="live",
+                now=now,
+                activity_context=context,
+            )
+        return snapshot
+
+    def _refresh_inactive_bot_table_snapshot_if_due(self, *, now: datetime) -> None:
+        normalized_now = self._normalize_datetime(now) or self._now(trim=False)
+        if not self._inactive_bot_table_snapshot_due(now=normalized_now):
+            return
+        self.inactive_bot_table_snapshot = self._build_inactive_bot_table_snapshot(now=normalized_now)
+        self.inactive_bot_table_snapshot_date = normalized_now.date().isoformat()
+        self.inactive_bot_table_snapshot_threshold_days = self._inactive_bot_alert_days()
+        self._save_state()
+
+    def _bot_row_inactivity_from_snapshot(self, *, workspace: str, worker_id: str) -> dict[str, Any]:
+        key = self._bot_row_inactivity_snapshot_key(workspace, worker_id)
+        summary = self.inactive_bot_table_snapshot.get(key)
+        if not isinstance(summary, dict):
+            return self._empty_bot_row_inactivity_summary()
+        inactive_users = [
+            {
+                "username": str(item.get("username") or "").strip(),
+                "days": int(item.get("days") or 0),
+            }
+            for item in summary.get("inactive_users") or []
+            if isinstance(item, dict) and str(item.get("username") or "").strip()
+        ]
+        inactive_days = max([int(item.get("days") or 0) for item in inactive_users], default=0)
+        return {
+            "inactive_days": inactive_days,
+            "inactive_days_label": "\n".join(
+                f"{item.get('username')}: {int(item.get('days') or 0)} ngày"
+                for item in inactive_users
+            ),
+            "inactive_days_alert": bool(inactive_users),
+            "inactive_users": inactive_users,
+        }
+
     def get_inactive_bot_allocations(
         self,
         *,
@@ -3545,6 +3650,11 @@ class AppStore:
                 return False
 
             threshold_days = self._inactive_bot_alert_days()
+            if self._inactive_bot_table_snapshot_due(now=normalized_now):
+                self.inactive_bot_table_snapshot = self._build_inactive_bot_table_snapshot(now=normalized_now)
+                self.inactive_bot_table_snapshot_date = today_key
+                self.inactive_bot_table_snapshot_threshold_days = threshold_days
+
             inactive_records = self.get_inactive_bot_allocations(now=normalized_now, days=threshold_days)
             self.inactive_bot_alert_last_attempted_on = today_key
             if not inactive_records:
@@ -12030,7 +12140,7 @@ class AppStore:
     def _build_bot_rows(self, manager_ids: list[str] | None = None, *, workspace_mode: str = "upload") -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         now = self._now(trim=False)
-        inactivity_context = self._bot_row_inactivity_context()
+        self._refresh_inactive_bot_table_snapshot_if_due(now=now)
         workspace_order = ["upload", "live"]
         operation_by_workspace: dict[str, dict[str, dict[str, Any]]] = {}
         operation_tasks_by_workspace: dict[str, list[dict[str, Any]]] = {}
@@ -12087,12 +12197,9 @@ class AppStore:
                     if is_live_workspace
                     else self._resolve_worker_display_name(worker.id)
                 )
-                inactivity_summary = self._bot_row_inactivity_summary(
-                    worker=worker,
-                    assigned_users=assigned_users,
+                inactivity_summary = self._bot_row_inactivity_from_snapshot(
                     workspace=current_workspace_kind,
-                    now=now,
-                    activity_context=inactivity_context,
+                    worker_id=worker.id,
                 )
                 connection_profile = dict(self.worker_connection_profiles.get(worker.id) or {})
                 worker_local = str(getattr(worker, "local", None) or "").strip()

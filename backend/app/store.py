@@ -3731,11 +3731,13 @@ class AppStore:
     def _worker_offline_message(self, worker: WorkerRecord, *, now: datetime) -> str:
         worker_name = worker.name or worker.id
         manager_name = worker.manager_name or "không rõ"
+        local_label = self._worker_local_label(worker)
         return (
             "[CẢNH BÁO] BOT mất kết nối quá 3 phút\n"
             f"BOT: {worker_name}\n"
             f"BOT ID: {worker.id}\n"
             f"Manager: {manager_name}\n"
+            f"Local: {local_label}\n"
             "Workspace: upload\n"
             f"Source: {self._worker_registration_source_label(worker, live=False)}\n"
             "Trạng thái: BOT chưa tự kết nối lại với control-plane"
@@ -3744,11 +3746,13 @@ class AppStore:
     def _live_worker_offline_message(self, worker: WorkerRecord, *, now: datetime) -> str:
         worker_name = worker.name or worker.id
         manager_name = worker.manager_name or "không rõ"
+        local_label = self._worker_local_label(worker)
         return (
             "[CẢNH BÁO] BOT live mất kết nối quá 3 phút\n"
             f"BOT: {worker_name}\n"
             f"BOT ID: {worker.id}\n"
             f"Manager: {manager_name}\n"
+            f"Local: {local_label}\n"
             "Workspace: live\n"
             f"Source: {self._worker_registration_source_label(worker, live=True)}\n"
             "Trạng thái: BOT live chưa tự kết nối lại với control-plane"
@@ -3763,11 +3767,13 @@ class AppStore:
     ) -> str:
         worker_name = worker.name or worker.id
         manager_name = worker.manager_name or "không rõ"
+        local_label = self._worker_local_label(worker)
         lines = [
             "[THÔNG BÁO] BOT đã kết nối lại",
             f"BOT: {worker_name}",
             f"BOT ID: {worker.id}",
             f"Manager: {manager_name}",
+            f"Local: {local_label}",
             "Workspace: upload",
             f"Source: {self._worker_registration_source_label(worker, live=False)}",
         ]
@@ -3786,11 +3792,13 @@ class AppStore:
     ) -> str:
         worker_name = worker.name or worker.id
         manager_name = worker.manager_name or "không rõ"
+        local_label = self._worker_local_label(worker)
         lines = [
             "[THÔNG BÁO] BOT live đã kết nối lại",
             f"BOT: {worker_name}",
             f"BOT ID: {worker.id}",
             f"Manager: {manager_name}",
+            f"Local: {local_label}",
             "Workspace: live",
             f"Source: {self._worker_registration_source_label(worker, live=True)}",
         ]
@@ -3799,6 +3807,10 @@ class AppStore:
         lines.append(f"Kết nối lại lúc: {self._format_full_datetime(now)}")
         lines.append("Trạng thái: BOT live đã kết nối lại với control-plane")
         return "\n".join(lines)
+
+    @staticmethod
+    def _worker_local_label(worker: WorkerRecord) -> str:
+        return str(getattr(worker, "local", None) or "").strip() or "-"
 
     def _worker_reconnect_notification(
         self,

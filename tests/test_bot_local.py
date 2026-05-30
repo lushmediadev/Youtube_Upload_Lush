@@ -84,6 +84,20 @@ class BotLocalTests(unittest.TestCase):
         rows = self.store._build_bot_rows()
         self.assertEqual(rows[0]["local"], "EU")
 
+    def test_worker_offline_telegram_message_includes_local(self) -> None:
+        worker = make_worker().model_copy(update={"local": "US-west"})
+
+        message = self.store._worker_offline_message(worker, now=datetime(2026, 5, 30, 8, 0))
+
+        self.assertIn("Local: US-west", message)
+
+    def test_worker_offline_telegram_message_falls_back_when_local_empty(self) -> None:
+        worker = make_worker().model_copy(update={"local": ""})
+
+        message = self.store._worker_offline_message(worker, now=datetime(2026, 5, 30, 8, 0))
+
+        self.assertIn("Local: -", message)
+
     def test_bot_export_rows_include_connection_profile_and_connect_state(self) -> None:
         self.store.workers[0].manager_name = "thanh"
         self.store.workers[0].local = "US-west"

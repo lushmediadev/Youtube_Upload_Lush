@@ -395,16 +395,21 @@
     .render-table thead th:not(:last-child)::after { content: ''; position: absolute; right: 0; top: 50%; width: 1px; height: 20px; background: rgb(226 232 240); transform: translateY(-50%); }
     /* Live list column widths: edit px values here */
     .live-col-stt { width: 64px; }
+    .live-col-info { width: 230px; }
     .live-col-actions { width: 174px; }
-    .live-col-bot { width: 130px; }
+    .live-col-bot { width: 170px; }
     .live-col-group { width: 108px; }
-    .live-col-title { width: 130px; }
     .live-col-key { width: 130px; }
-    .live-col-backup { width: 130px; }
     .live-col-type { width: 112px; }
     .live-col-timeline { width: 216px; }
     .live-col-log { width: 100px; }
     .live-col-status { width: 112px; }
+    .render-table .live-col-title,
+    .render-table .live-col-backup,
+    #liveStreamTableBody tr > td:nth-child(6),
+    #liveStreamTableBody tr > td:nth-child(8) {
+      display: none;
+    }
     .sortable-button { width: 100%; display: inline-flex; align-items: center; gap: 4px; color: rgb(71 85 105); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; background: transparent; border: 0; padding: 0; }
     .sortable-button.center { justify-content: center; }
     .sortable-button.end { justify-content: flex-end; }
@@ -881,8 +886,9 @@
               <thead class="text-slate-600 text-[11px] font-semibold tracking-wide bg-slate-50/70">
                 <tr>
                   <th class="live-col-stt px-4 py-4 border-b border-slate-200 text-center"><button type="button" class="sortable-button center">STT <span class="sort-arrows"><i data-lucide="arrow-up" class="w-2.5 h-2.5"></i><i data-lucide="arrow-down" class="w-2.5 h-2.5 -ml-[1px]"></i></span></button></th>
+                  <th class="live-col-info px-4 py-4 border-b border-slate-200"><button type="button" class="sortable-button">Th&#244;ng tin job <span class="sort-arrows"><i data-lucide="arrow-up" class="w-2.5 h-2.5"></i><i data-lucide="arrow-down" class="w-2.5 h-2.5 -ml-[1px]"></i></span></button></th>
                   <th class="live-col-actions px-4 py-4 border-b border-slate-200"><button type="button" class="sortable-button">Tác vụ <span class="sort-arrows"><i data-lucide="arrow-up" class="w-2.5 h-2.5"></i><i data-lucide="arrow-down" class="w-2.5 h-2.5 -ml-[1px]"></i></span></button></th>
-                  <th class="live-col-bot px-6 py-4 border-b border-slate-200"><button type="button" class="sortable-button">BOT live <span class="sort-arrows"><i data-lucide="arrow-up" class="w-2.5 h-2.5"></i><i data-lucide="arrow-down" class="w-2.5 h-2.5 -ml-[1px]"></i></span></button></th>
+                  <th class="live-col-bot px-6 py-4 border-b border-slate-200"><button type="button" class="sortable-button">Bot <span class="sort-arrows"><i data-lucide="arrow-up" class="w-2.5 h-2.5"></i><i data-lucide="arrow-down" class="w-2.5 h-2.5 -ml-[1px]"></i></span></button></th>
                   <th class="live-col-group px-5 py-4 border-b border-slate-200"><button type="button" class="sortable-button">Group <span class="sort-arrows"><i data-lucide="arrow-up" class="w-2.5 h-2.5"></i><i data-lucide="arrow-down" class="w-2.5 h-2.5 -ml-[1px]"></i></span></button></th>
                   <th class="live-col-title px-6 py-4 border-b border-slate-200"><button type="button" class="sortable-button">Tên luồng <span class="sort-arrows"><i data-lucide="arrow-up" class="w-2.5 h-2.5"></i><i data-lucide="arrow-down" class="w-2.5 h-2.5 -ml-[1px]"></i></span></button></th>
                   <th class="live-col-key px-5 py-4 border-b border-slate-200"><button type="button" class="sortable-button">Khóa luồng <span class="sort-arrows"><i data-lucide="arrow-up" class="w-2.5 h-2.5"></i><i data-lucide="arrow-down" class="w-2.5 h-2.5 -ml-[1px]"></i></span></button></th>
@@ -898,6 +904,21 @@
                 {% for stream in dashboard.live_stream_rows %}
                 <tr class="hover:bg-slate-50 transition-colors" data-stream-search="{{ ((stream.title | default('', true)) ~ ' ' ~ (stream.stream_name | default('', true)) ~ ' ' ~ (stream.bot_name | default('', true)) ~ ' ' ~ (stream.group_name | default('', true))) | lower | e }}">
                   <td class="px-4 py-5 text-center font-mono text-[13px] text-slate-500">{{ stream.index }}</td>
+                  <td class="px-4 py-5 align-top">
+                    <div class="flex items-center gap-3 min-w-0">
+                      <div class="live-cover">
+                        {% if stream.preview_kind == 'image' and stream.preview_url %}
+                        <img src="{{ stream.preview_url | e }}" alt="">
+                        {% else %}
+                        <span class="live-cover-empty">{{ stream.preview_text | default('LV', true) | e }}</span>
+                        {% endif %}
+                      </div>
+                      <div class="min-w-0">
+                        <p class="live-stream-title text-[13px] font-bold text-brand-700 leading-[1.4]" title="{{ stream.title | default(stream.stream_name, true) | e }}">{{ stream.title | default(stream.stream_name | default('-', true), true) | e }}</p>
+                        <p class="table-meta mt-1">User {{ stream.username | default('-', true) | e }}</p>
+                      </div>
+                    </div>
+                  </td>
                   <td class="px-4 py-5 align-top">
                     <div class="live-table-action-grid">
                       {% if stream.can_stop %}
@@ -938,7 +959,8 @@
                   </td>
                   <td class="px-6 py-5 align-top">
                     <div class="live-table-two-line max-w-[168px]">
-                      <p class="live-table-line text-[12px] font-bold text-slate-900">{{ stream.bot_name | default('-', true) | e }}</p>
+                      <p class="live-table-line text-[12px] font-bold text-slate-900">Live: {{ stream.bot_name | default('-', true) | e }}</p>
+                      <p class="live-table-line text-[11px] font-semibold text-slate-600">Backup: {{ stream.bot_backup_name | default('Kh&#244;ng d&#249;ng backup', true) | e }}</p>
                     </div>
                   </td>
                   <td class="px-5 py-5 align-top">
@@ -987,7 +1009,7 @@
                 {% endfor %}
                 {% else %}
                 <tr data-live-empty-row>
-                  <td colspan="11" class="px-6 py-10 text-center text-[13px] text-slate-500">Ch&#432;a c&oacute; lu&#7891;ng live n&agrave;o trong danh s&aacute;ch</td>
+                  <td colspan="12" class="px-6 py-10 text-center text-[13px] text-slate-500">Ch&#432;a c&oacute; lu&#7891;ng live n&agrave;o trong danh s&aacute;ch</td>
                 </tr>
                 {% endif %}
               </tbody>
@@ -2068,8 +2090,26 @@
       stream.title,
       stream.stream_name,
       stream.bot_name,
+      stream.bot_backup_name,
       stream.group_name,
     ].join(' ').toLowerCase();
+
+    const renderLiveJobInfoMarkup = (stream) => {
+      const title = stream.title || stream.stream_name || '-';
+      const previewText = String(stream.preview_text || 'LV').slice(0, 3).toUpperCase();
+      const preview = stream.preview_kind === 'image' && stream.preview_url
+        ? `<img src="${escapeHtml(stream.preview_url)}" alt="">`
+        : `<span class="live-cover-empty">${escapeHtml(previewText)}</span>`;
+      return `
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="live-cover">${preview}</div>
+          <div class="min-w-0">
+            <p class="live-stream-title text-[13px] font-bold text-brand-700 leading-[1.4]" title="${escapeHtml(title)}">${escapeHtml(title)}</p>
+            <p class="table-meta mt-1">User ${escapeHtml(stream.username || '-')}</p>
+          </div>
+        </div>
+      `;
+    };
 
     const renderLiveActionMarkup = (stream) => {
       const managerHiddenInputs = buildLiveManagerHiddenInputs();
@@ -2117,10 +2157,12 @@
     const buildLiveRowMarkup = (stream) => `
       <tr class="hover:bg-slate-50 transition-colors" data-stream-search="${escapeHtml(buildLiveRowSearch(stream))}">
         <td class="px-4 py-5 text-center font-mono text-[13px] text-slate-500">${escapeHtml(stream.index || '')}</td>
+        <td class="px-4 py-5 align-top">${renderLiveJobInfoMarkup(stream)}</td>
         <td class="px-4 py-5 align-top">${renderLiveActionMarkup(stream)}</td>
         <td class="px-6 py-5 align-top">
           <div class="live-table-two-line max-w-[168px]">
-            <p class="live-table-line text-[12px] font-bold text-slate-900">${escapeHtml(stream.bot_name || '-')}</p>
+            <p class="live-table-line text-[12px] font-bold text-slate-900">Live: ${escapeHtml(stream.bot_name || '-')}</p>
+            <p class="live-table-line text-[11px] font-semibold text-slate-600">Backup: ${escapeHtml(stream.bot_backup_name || 'KhÃ´ng dÃ¹ng backup')}</p>
           </div>
         </td>
         <td class="px-5 py-5 align-top">
@@ -2174,7 +2216,7 @@
       const streamNameHistoryField = liveHistoryFields.find((field) => field.key === 'stream_name');
       if (streamNameHistoryField) renderLiveHistoryOptions(streamNameHistoryField);
       if (!liveRows.length) {
-        liveStreamTableBody.innerHTML = '<tr data-live-empty-row><td colspan="11" class="px-6 py-10 text-center text-[13px] text-slate-500">Chưa có luồng live nào trong danh sách</td></tr>';
+        liveStreamTableBody.innerHTML = '<tr data-live-empty-row><td colspan="12" class="px-6 py-10 text-center text-[13px] text-slate-500">Chưa có luồng live nào trong danh sách</td></tr>';
       } else {
         liveStreamTableBody.innerHTML = liveRows.map((stream) => buildLiveRowMarkup(stream)).join('');
       }
@@ -2204,6 +2246,9 @@
             item.end_clock_text,
             item.bot_name,
             item.bot_backup_name,
+            item.preview_kind,
+            item.preview_url,
+            item.preview_text,
           ])
         : [],
     });

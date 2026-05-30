@@ -1,6 +1,8 @@
 import os
+import tempfile
 import unittest
 from datetime import datetime, timedelta
+from pathlib import Path
 
 os.environ.setdefault("APP_ENABLE_LIVE_DEMO_SEED", "0")
 
@@ -212,6 +214,26 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
 
         self.assertIsNone(claimed)
         self.assertEqual(self.store.save_calls, 0)
+
+    def test_live_worker_thumbnail_is_stored_as_small_preview_asset(self) -> None:
+        self.store.live_streams = [make_stream(status="waiting", lease_expires_at=datetime.now() + timedelta(minutes=5))]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self.store.live_preview_dir = Path(temp_dir)
+
+            updated = self.store.store_worker_live_preview_thumbnail(
+                stream_id="live-test",
+                worker_id="live-worker-01",
+                shared_secret=self.store.get_worker_shared_secret(),
+                file_name="frame.jpg",
+                content_type="image/jpeg",
+                payload=b"fake-jpeg-preview",
+            )
+            preview = self.store.get_user_live_preview_thumbnail_file(user_id="user-1", stream_id="live-test")
+
+            self.assertEqual(updated.thumbnail_path, "live-test.jpg")
+            self.assertEqual(updated.thumbnail_url, "/api/user/live/live-test/preview-thumbnail")
+            self.assertEqual(preview["file_name"], "live-test.jpg")
+            self.assertEqual(Path(preview["path"]).read_bytes(), b"fake-jpeg-preview")
 
     def test_started_disconnected_stream_without_backup_can_be_reclaimed(self) -> None:
         self.store.live_streams = [

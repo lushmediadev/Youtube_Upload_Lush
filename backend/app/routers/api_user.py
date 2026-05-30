@@ -187,6 +187,25 @@ async def get_user_job_preview_thumbnail(request: Request, job_id: str):
     )
 
 
+@router.get("/user/live/{stream_id}/preview-thumbnail")
+async def get_user_live_preview_thumbnail(request: Request, stream_id: str):
+    try:
+        payload = store.get_user_live_preview_thumbnail_file(
+            user_id=_current_app_user_id(request),
+            stream_id=stream_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y live preview.") from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Preview image khÃ´ng cÃ²n tá»“n táº¡i.") from exc
+
+    return FileResponse(
+        path=payload["path"],
+        media_type=payload["content_type"],
+        filename=payload["file_name"],
+    )
+
+
 @router.post("/user/oauth/connect/start")
 async def start_user_oauth(request: Request):
     _current_app_user_id(request)

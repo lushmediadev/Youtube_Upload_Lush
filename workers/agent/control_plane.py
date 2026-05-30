@@ -772,6 +772,30 @@ def upload_job_thumbnail(
     )
 
 
+def upload_live_thumbnail(
+    client: httpx.Client,
+    config: WorkerConfig,
+    stream_id: str,
+    *,
+    file_name: str,
+    payload: bytes,
+    content_type: str = "image/jpeg",
+) -> None:
+    _request_with_retry(
+        client,
+        config,
+        "POST",
+        f"/api/live-workers/streams/{stream_id}/thumbnail",
+        operation=f"upload_live_thumbnail:{stream_id}",
+        headers={
+            **worker_auth_headers(config),
+            "x-file-name": file_name,
+            "content-type": content_type,
+        },
+        content=payload,
+    )
+
+
 def complete_job(
     client: httpx.Client,
     config: WorkerConfig,

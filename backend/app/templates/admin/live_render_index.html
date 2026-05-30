@@ -43,14 +43,13 @@
                 <thead>
                     <tr>
                         <th class="live-render-col-stt">STT</th>
-                        <th class="live-render-col-name">T&ecirc;n lu&#7891;ng</th>
                         <th class="live-render-col-key">Kh&oacute;a lu&#7891;ng</th>
-                        <th class="live-render-col-bot">BOT live</th>
-                        <th class="live-render-col-backup">BOT backup</th>
+                        <th class="live-render-col-bot">Bot</th>
                         <th class="live-render-col-config">C&#7845;u h&igrave;nh live</th>
                         <th class="live-render-col-timeline">Timeline</th>
                         <th class="live-render-col-log">Log</th>
                         <th class="live-render-col-status">Tr&#7841;ng th&aacute;i</th>
+                        <th class="live-render-col-info">Th&ocirc;ng tin job</th>
                         <th class="live-render-col-actions text-right">T&aacute;c v&#7909;</th>
                     </tr>
                 </thead>
@@ -59,12 +58,6 @@
                     {% for render in dashboard.renders %}
                     <tr>
                         <td class="live-render-col-stt table-mono text-slate-500">{{ render.index }}</td>
-                        <td class="live-render-col-name">
-                            <div class="live-render-stack">
-                                <p class="live-render-title">{{ render.stream_name }}</p>
-                                <p class="live-render-meta">User {{ render.username }}</p>
-                            </div>
-                        </td>
                         <td class="live-render-col-key">
                             <div class="live-render-stack">
                                 <p class="live-render-title live-render-mono">{{ render.stream_key }}</p>
@@ -72,13 +65,8 @@
                         </td>
                         <td class="live-render-col-bot">
                             <div class="live-render-stack">
-                                <p class="live-render-title">{{ render.bot_name }}</p>
-                                <p class="live-render-meta">Manager {{ render.manager_name }}</p>
-                            </div>
-                        </td>
-                        <td class="live-render-col-backup">
-                            <div class="live-render-stack">
-                                <p class="live-render-title">{{ render.bot_backup_name }}</p>
+                                <p class="live-render-title">Live: {{ render.bot_name }}</p>
+                                <p class="live-render-meta">Backup: {{ render.bot_backup_name }}</p>
                                 <p class="live-render-meta">Manager {{ render.manager_name }}</p>
                             </div>
                         </td>
@@ -99,6 +87,21 @@
                         </td>
                         <td class="live-render-col-status live-render-status-cell">
                             <span class="inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold {{ render.status_class }}">{{ render.status_label }}</span>
+                        </td>
+                        <td class="live-render-col-info">
+                            <div class="live-render-job-info">
+                                <div class="live-render-cover">
+                                    {% if render.preview_kind == 'image' and render.preview_url %}
+                                    <img src="{{ render.preview_url | e }}" alt="">
+                                    {% else %}
+                                    <span>{{ render.preview_text | default('LV', true) | e }}</span>
+                                    {% endif %}
+                                </div>
+                                <div class="min-w-0">
+                                    <p class="live-render-title">{{ render.stream_name }}</p>
+                                    <p class="live-render-meta">User {{ render.username }}</p>
+                                </div>
+                            </div>
                         </td>
                         <td class="live-render-col-actions">
                             <div class="live-render-action-row">
@@ -151,7 +154,7 @@
                     {% endfor %}
                     {% else %}
                     <tr>
-                        <td colspan="10" class="admin-table-empty">Ch&#432;a c&oacute; live stream n&agrave;o trong danh s&aacute;ch.</td>
+                        <td colspan="9" class="admin-table-empty">Ch&#432;a c&oacute; live stream n&agrave;o trong danh s&aacute;ch.</td>
                     </tr>
                     {% endif %}
                 </tbody>
@@ -175,15 +178,42 @@
         word-break: break-word;
     }
     .live-render-col-stt { width: 70px; }
-    .live-render-col-name { width: 150px; }
     .live-render-col-key { width: 120px; }
-    .live-render-col-bot { width: 110px; }
-    .live-render-col-backup { width: 110px; }
+    .live-render-col-bot { width: 150px; }
     .live-render-col-config { width: 100px; }
     .live-render-col-timeline { width: 180px; }
     .live-render-col-log { width: 90px; }
     .live-render-col-status { width: 96px; }
+    .live-render-col-info { width: 220px; }
     .live-render-col-actions { width: 140px; }
+    .live-render-job-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+    }
+    .live-render-cover {
+        width: 76px;
+        aspect-ratio: 4 / 3;
+        border-radius: 12px;
+        border: 1px solid rgb(226 232 240);
+        overflow: hidden;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, rgb(15 23 42), rgb(30 41 59));
+        color: rgba(255,255,255,0.84);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+    }
+    .live-render-cover img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
     .live-render-stack {
         display: flex;
         flex-direction: column;

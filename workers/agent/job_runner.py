@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import subprocess
 import time
 from pathlib import Path
 
@@ -13,7 +12,8 @@ from .browser_uploader import upload_video_via_browser
 from .config import WorkerConfig
 from .control_plane import complete_job, get_job_youtube_target, update_job_progress, upload_job_thumbnail
 from .downloader import download_local_asset, download_remote_asset
-from .ffmpeg_pipeline import probe_media, render_job_assets
+from .ffmpeg_pipeline import render_job_assets
+from .preview import capture_video_preview
 
 
 def _make_progress_reporter(client: httpx.Client, config: WorkerConfig, job_id: str):
@@ -158,48 +158,6 @@ def _download_assets(
     return downloaded
 
 
-def _capture_video_preview(
-    config: WorkerConfig,
-    *,
-    source_path: Path,
-    destination_path: Path,
-) -> Path:
-    media_info = probe_media(config.ffprobe_bin, source_path)
-    if not media_info.has_video:
-        raise ValueError(f"Asset {source_path.name} khong co video stream.")
-
-    duration_seconds = max(0.0, float(media_info.duration_seconds or 0.0))
-    seek_seconds = 0.0
-    if duration_seconds > 2:
-        seek_seconds = min(max(duration_seconds * 0.15, 1.0), max(duration_seconds - 0.5, 0.0))
-
-    command = [
-        config.ffmpeg_bin,
-        "-y",
-        "-ss",
-        f"{seek_seconds:.3f}",
-        "-i",
-        str(source_path),
-        "-frames:v",
-        "1",
-        "-vf",
-        "scale=480:-2:force_original_aspect_ratio=decrease",
-        str(destination_path),
-    ]
-    result = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if result.returncode != 0 or not destination_path.exists():
-        tail = "\n".join((result.stderr or result.stdout or "").splitlines()[-20:])
-        raise RuntimeError(f"Khong the tao snapshot preview.\n{tail}".strip())
-    return destination_path
-
-
 def _try_upload_job_preview_thumbnail(
     client: httpx.Client,
     config: WorkerConfig,
@@ -215,7 +173,7 @@ def _try_upload_job_preview_thumbnail(
     preview_dir.mkdir(parents=True, exist_ok=True)
     preview_path = preview_dir / "video-loop-preview.jpg"
     try:
-        snapshot_path = _capture_video_preview(
+        snapshot_path = capture_video_preview(
             config,
             source_path=video_source_path,
             destination_path=preview_path,

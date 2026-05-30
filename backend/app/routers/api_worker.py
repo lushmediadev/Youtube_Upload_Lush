@@ -333,3 +333,28 @@ async def upload_worker_job_thumbnail(
         raise HTTPException(status_code=404, detail="Không tìm thấy job.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/live-workers/streams/{stream_id}/thumbnail")
+async def upload_worker_live_thumbnail(
+    stream_id: str,
+    request: Request,
+    x_worker_id: str = Header(...),
+    x_worker_secret: str = Header(...),
+    x_file_name: str = Header(default="preview.jpg"),
+    content_type: str | None = Header(default=None),
+):
+    payload = await request.body()
+    try:
+        return store.store_worker_live_preview_thumbnail(
+            stream_id=stream_id,
+            worker_id=x_worker_id,
+            shared_secret=x_worker_secret,
+            file_name=x_file_name,
+            content_type=content_type,
+            payload=payload,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y luá»“ng live.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

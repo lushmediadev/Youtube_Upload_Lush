@@ -19,10 +19,12 @@ from .control_plane import (
     complete_live_stream,
     get_live_stream_runtime_state,
     update_live_stream_progress,
+    upload_live_thumbnail,
 )
 from .downloader import download_remote_asset
 from .ffmpeg_pipeline import MediaInfo, probe_media
 from .live_supervisor import LiveSupervisor
+from .preview import capture_video_preview
 
 
 def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
@@ -436,6 +438,42 @@ def _download_live_assets(
     else:
         report_progress("downloading", 100, "Đã tải xong media", force=True)
     return video_path, audio_path
+
+
+def _try_upload_live_preview_thumbnail(
+    client: httpx.Client,
+    config: WorkerConfig,
+    *,
+    stream: dict,
+    stream_id: str,
+    video_source_path: Path | None,
+    work_dir: Path,
+) -> None:
+    if not video_source_path or not video_source_path.exists():
+        return
+    visible_stream_id = str(stream.get("parent_stream_id") or stream_id or "").strip()
+    if not visible_stream_id:
+        return
+
+    preview_dir = work_dir / "preview"
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    preview_path = preview_dir / "live-preview.jpg"
+    try:
+        snapshot_path = capture_video_preview(
+            config,
+            source_path=video_source_path,
+            destination_path=preview_path,
+        )
+        upload_live_thumbnail(
+            client,
+            config,
+            visible_stream_id,
+            file_name=snapshot_path.name,
+            content_type="image/jpeg",
+            payload=snapshot_path.read_bytes(),
+        )
+    except Exception as exc:
+        print(f"[live-preview] stream={stream_id} thumbnail upload skipped: {exc}", flush=True)
 
 
 def _resolve_live_video_normalize_plan(
@@ -1055,6 +1093,14 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
             downloads_dir,
             report_progress,
             lifecycle_guard=lifecycle_guard,
+        )
+        _try_upload_live_preview_thumbnail(
+            client,
+            config,
+            stream=stream,
+            stream_id=stream_id,
+            video_source_path=video_path,
+            work_dir=work_dir,
         )
         video_path, normalized_video = _maybe_normalize_live_video(
             config,

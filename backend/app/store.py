@@ -398,6 +398,8 @@ class AppStore:
         self.upload_asset_dir.mkdir(parents=True, exist_ok=True)
         self.preview_dir = self.data_dir / "previews"
         self.preview_dir.mkdir(parents=True, exist_ok=True)
+        self.live_preview_dir = self.preview_dir / "live"
+        self.live_preview_dir.mkdir(parents=True, exist_ok=True)
         self.state_db_path = self.data_dir / "app_state.db"
         self.upload_sessions: list[UploadSessionRecord] = []
         self.browser_runtime = BrowserRuntimeManager(self.data_dir)
@@ -6239,6 +6241,8 @@ class AppStore:
                 platform=stream.platform,
                 video_url=stream.video_url,
                 audio_url=stream.audio_url,
+                thumbnail_url=stream.thumbnail_url,
+                thumbnail_path=stream.thumbnail_path,
                 live_label=stream.live_label,
                 is_forever=stream.is_forever,
                 is_live_now=False,
@@ -6273,6 +6277,8 @@ class AppStore:
             clone.platform = stream.platform
             clone.video_url = stream.video_url
             clone.audio_url = stream.audio_url
+            clone.thumbnail_url = stream.thumbnail_url
+            clone.thumbnail_path = stream.thumbnail_path
             clone.live_label = stream.live_label
             clone.is_forever = stream.is_forever
             clone.start_time_live = stream.start_time_live
@@ -10303,6 +10309,7 @@ class AppStore:
             log_override=log_label,
         )
         now = self._now(trim=False)
+        video_source_changed = normalized_video_url != stream.video_url
 
         stream.manager_id = manager_id
         stream.manager_name = manager_name
@@ -10321,6 +10328,11 @@ class AppStore:
         stream.platform = str(platform or "youtube_rtmp").strip().lower() or "youtube_rtmp"
         stream.video_url = normalized_video_url
         stream.audio_url = normalized_audio_url
+        if video_source_changed:
+            self._delete_live_preview_file(stream)
+            clone = self._find_live_backup_clone_optional(stream)
+            if clone is not None:
+                self._delete_live_preview_file(clone)
         stream.live_label = self._derive_live_label(
             start_time_live=start_time_live,
             end_time_live=end_time_live,
@@ -10367,6 +10379,8 @@ class AppStore:
         clone = self._find_live_backup_clone_optional(stream)
         if clone is not None:
             self._retire_live_backup_clone(clone, now=now, reason="Luồng chính đã bị xoá.")
+            self._delete_live_preview_file(clone)
+        self._delete_live_preview_file(stream)
         self.live_streams = [item for item in self.live_streams if item.id != stream.id]
         self._save_state()
 
@@ -10655,6 +10669,7 @@ class AppStore:
         effective_error_message = self._summarize_live_error_message(effective_runtime.error_message or stream.error_message)
         can_delete = effective_runtime.status != "streaming"
         can_edit = not self._is_live_stream_runtime_locked(stream)
+        preview = self._resolve_live_preview(stream)
         return {
             "id": stream.id,
             "manager_id": stream.manager_id,
@@ -10666,6 +10681,9 @@ class AppStore:
             "group_meta": stream.manager_name or "-",
             "title": stream.stream_name,
             "stream_name": stream.stream_name,
+            "preview_kind": (preview or {}).get("kind", ""),
+            "preview_url": (preview or {}).get("url", ""),
+            "preview_text": (stream.stream_name[:2] or "LV").upper(),
             "stream_key": stream.stream_key,
             "stream_key_masked": stream.stream_key,
             "bot_backup_name": backup_name or "Không dùng backup",
@@ -10801,6 +10819,22 @@ class AppStore:
             return {
                 "kind": "image",
                 "url": f"https://i.ytimg.com/vi/{youtube_video_id}/hqdefault.jpg",
+            }
+
+        return None
+
+    def _resolve_live_preview(self, stream: LiveStreamRecord) -> dict[str, str] | None:
+        relative_path = str(stream.thumbnail_path or "").strip()
+        if relative_path and self._path_has_content(self._absolute_live_preview_path(relative_path)):
+            return {
+                "kind": "image",
+                "url": self._live_preview_route(stream.id),
+            }
+
+        if stream.thumbnail_url:
+            return {
+                "kind": "image",
+                "url": stream.thumbnail_url,
             }
 
         return None
@@ -15067,9 +15101,16 @@ class AppStore:
     def _absolute_preview_path(self, relative_path: str) -> Path:
         return self.preview_dir / relative_path
 
+    def _absolute_live_preview_path(self, relative_path: str) -> Path:
+        return self.live_preview_dir / relative_path
+
     @staticmethod
     def _preview_route(job_id: str) -> str:
         return f"/api/user/jobs/{job_id}/preview-thumbnail"
+
+    @staticmethod
+    def _live_preview_route(stream_id: str) -> str:
+        return f"/api/user/live/{stream_id}/preview-thumbnail"
 
     def _delete_job_preview_file(self, job: RenderJobRecord) -> bool:
         relative_path = str(job.thumbnail_path or "").strip()
@@ -15080,6 +15121,17 @@ class AppStore:
             preview_path.unlink(missing_ok=True)
         job.thumbnail_path = None
         job.thumbnail_url = None
+        return True
+
+    def _delete_live_preview_file(self, stream: LiveStreamRecord) -> bool:
+        relative_path = str(stream.thumbnail_path or "").strip()
+        if not relative_path:
+            return False
+        preview_path = self._absolute_live_preview_path(relative_path)
+        if preview_path.exists():
+            preview_path.unlink(missing_ok=True)
+        stream.thumbnail_path = None
+        stream.thumbnail_url = None
         return True
 
     def _find_upload_session(self, session_id: str) -> UploadSessionRecord:
@@ -15295,6 +15347,31 @@ class AppStore:
             "content_type": content_type or "image/jpeg",
         }
 
+    def get_user_live_preview_thumbnail_file(self, *, user_id: str, stream_id: str) -> dict[str, Any]:
+        user = self._require_workspace_user(user_id)
+        stream = self._find_visible_live_stream(stream_id)
+        if user.role == "admin":
+            pass
+        elif user.role == "manager":
+            owner = self._require_workspace_user(stream.owner_user_id)
+            self._assert_live_stream_owner_scope(owner, viewer_role=user.role, viewer_id=user.id)
+        elif stream.owner_user_id != user.id:
+            raise KeyError(stream_id)
+        relative_path = str(stream.thumbnail_path or "").strip()
+        if not relative_path:
+            raise FileNotFoundError(stream_id)
+
+        file_path = self._absolute_live_preview_path(relative_path)
+        if not self._path_has_content(file_path):
+            raise FileNotFoundError(relative_path)
+
+        content_type, _ = mimetypes.guess_type(str(file_path))
+        return {
+            "path": file_path,
+            "file_name": file_path.name,
+            "content_type": content_type or "image/jpeg",
+        }
+
     def store_worker_job_preview_thumbnail(
         self,
         *,
@@ -15324,6 +15401,49 @@ class AppStore:
         job.thumbnail_url = self._preview_route(job.id)
         self._save_state()
         return deepcopy(job)
+
+    def store_worker_live_preview_thumbnail(
+        self,
+        *,
+        stream_id: str,
+        worker_id: str,
+        shared_secret: str,
+        file_name: str,
+        content_type: str | None,
+        payload: bytes,
+    ) -> LiveStreamRecord:
+        self._authenticate_live_worker(worker_id, shared_secret)
+        stream = self._find_live_stream(stream_id)
+        visible_stream = self._visible_live_stream_for_runtime(stream)
+        allowed_worker_ids = {
+            str(stream.primary_worker_id or "").strip(),
+            str(stream.claimed_by_worker_id or "").strip(),
+            str(visible_stream.primary_worker_id or "").strip(),
+            str(visible_stream.backup_worker_id or "").strip(),
+            str(visible_stream.claimed_by_worker_id or "").strip(),
+        }
+        if str(worker_id or "").strip() not in allowed_worker_ids:
+            raise ValueError("Worker không được phép cập nhật thumbnail live này.")
+        if not payload:
+            raise ValueError("Preview payload rong.")
+
+        suffix = Path(file_name or "preview.jpg").suffix.lower()
+        if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+            suffix = ".jpg"
+
+        self._delete_live_preview_file(visible_stream)
+        relative_path = f"{visible_stream.id}{suffix}"
+        preview_path = self._absolute_live_preview_path(relative_path)
+        preview_path.parent.mkdir(parents=True, exist_ok=True)
+        preview_path.write_bytes(payload)
+        visible_stream.thumbnail_path = relative_path
+        visible_stream.thumbnail_url = self._live_preview_route(visible_stream.id)
+        clone = self._find_live_backup_clone_optional(visible_stream)
+        if clone is not None:
+            clone.thumbnail_path = relative_path
+            clone.thumbnail_url = visible_stream.thumbnail_url
+        self._save_state()
+        return deepcopy(visible_stream)
 
     def get_worker_job_youtube_target(
         self,

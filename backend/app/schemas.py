@@ -198,6 +198,8 @@ class LiveStreamRecord(BaseModel):
     platform: LivePlatform = "youtube_rtmp"
     video_url: str
     audio_url: str | None = None
+    thumbnail_url: str | None = None
+    thumbnail_path: str | None = None
     live_label: str = "Live 11h"
     is_forever: bool = False
     is_live_now: bool = False

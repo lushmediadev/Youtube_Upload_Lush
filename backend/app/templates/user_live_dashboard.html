@@ -697,8 +697,11 @@
                     <datalist id="liveStreamNameSuggestions"></datalist>
                   </div>
                   <div>
-                    <div class="mb-1.5 flex items-center justify-between gap-3">
-                      <label class="block text-slate-600 text-[12px] font-semibold">Link video ngu&#7891;n</label>
+                    <div class="mb-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <div class="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                        <label class="block text-slate-600 text-[12px] font-semibold">Link video ngu&#7891;n</label>
+                        <span class="text-[12px] font-medium text-rose-500">* Xu&#7845;t video live v&#7899;i m&#7913;c bitrate 6000 Kbs cho 1080p v&agrave; 20000 Kbs cho 4k &#273;&#7875; &#273;&#7843;m b&#7843;o lu&#7891;ng live ho&#7841;t &#273;&#7897;ng &#7893;n &#273;&#7883;nh</span>
+                      </div>
                       <span data-live-url-status="video" class="text-[11px] font-semibold text-slate-400">Ch&#432;a nh&#7853;p link</span>
                     </div>
                     <input id="liveVideoUrlInput" type="text" name="video_url" value="{{ dashboard.live_form.video_url | e }}" data-live-url-input="video" placeholder="D&aacute;n link video live..." list="liveVideoUrlSuggestions" autocomplete="on" spellcheck="false" inputmode="url" class="panel-input live-source-input w-full border text-slate-900 px-4 py-0 rounded-lg outline-none placeholder:text-slate-400 text-[13px] transition-all">

@@ -1221,3 +1221,4 @@
 - 2026-05-29: Added a `Không hoạt động` column to the admin BOT list. The column reuses inactive-BOT allocation activity data and only shows assigned users whose BOT allocation has been idle for more than the configured threshold, one red `username: N ngày` line per stale user.
 - 2026-05-30: Added a red bitrate guidance note beside the user live `Link video nguồn` label, reminding users to export 1080p live video at 6000 Kbs and 4k at 20000 Kbs for more stable live streams.
 - 2026-05-30: Added `Local` to upload/live BOT offline and reconnect Telegram notifications so ops can see the VPS region directly in alerts.
+- 2026-05-30: Changed live RTMP push to keep a single FFmpeg input loop with `-stream_loop -1` instead of restarting FFmpeg after each `rendered.flv` pass, and restored timed-live backup policy so primary plus backup both retry RTMP independently until the scheduled end time. Removed the temporary red bitrate note from the user live video URL label.

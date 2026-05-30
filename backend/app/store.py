@@ -5932,13 +5932,6 @@ class AppStore:
         normalized_status = str(stream.status or "").strip().lower() or "scheduled"
         if normalized_status != "disconnected":
             return False
-        if (
-            self._is_visible_live_stream(stream)
-            and not stream.is_forever
-            and stream.backup_worker_id
-            and self._live_backup_clone_is_active(stream)
-        ):
-            return False
         if not self._live_stream_requires_fast_failover(stream):
             return self._live_runtime_retry_ready(stream, now=now)
         if self._is_live_hot_standby_backup_clone(stream):
@@ -6461,6 +6454,8 @@ class AppStore:
         if not self._is_visible_live_stream(stream):
             return False
         if not str(stream.backup_worker_id or "").strip():
+            return False
+        if not stream.is_forever or stream.end_time_live is not None:
             return False
         normalized_status = str(stream.status or "").strip().lower() or "scheduled"
         if normalized_status not in self._live_worker_active_statuses():

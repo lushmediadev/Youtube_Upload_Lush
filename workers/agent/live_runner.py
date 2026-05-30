@@ -193,6 +193,12 @@ def _has_live_failover_backup(stream: dict) -> bool:
     return runtime_role != "backup" and not is_runtime_clone and bool(backup_worker_id)
 
 
+def _is_timed_primary_with_parallel_backup(stream: dict) -> bool:
+    if not _has_live_failover_backup(stream):
+        return False
+    return _parse_control_plane_datetime(stream.get("end_time_live")) is not None
+
+
 def _is_retriable_rtmp_output_error(exc: BaseException) -> bool:
     message = str(exc or "").casefold()
     if "ffmpeg live runtime failed" not in message:
@@ -214,7 +220,7 @@ def _is_retriable_rtmp_output_error(exc: BaseException) -> bool:
 
 
 def _should_retry_rtmp_output_error(stream: dict, exc: BaseException) -> bool:
-    if _has_live_failover_backup(stream):
+    if _has_live_failover_backup(stream) and not _is_timed_primary_with_parallel_backup(stream):
         return False
     return _is_retriable_rtmp_output_error(exc)
 
@@ -895,6 +901,8 @@ def _stream_once(
         "-re",
         "-f",
         "flv",
+        "-stream_loop",
+        "-1",
         "-i",
         str(rendered_path),
         "-c",

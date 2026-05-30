@@ -230,7 +230,7 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
             )
         )
 
-    def test_timed_primary_with_active_backup_does_not_reclaim_after_disconnect(self) -> None:
+    def test_timed_primary_with_active_backup_can_reclaim_after_disconnect(self) -> None:
         end_time = datetime.now() + timedelta(hours=2)
         primary = make_stream(
             status="disconnected",
@@ -261,7 +261,7 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         )
         self.store.live_streams = [primary, backup]
 
-        self.assertFalse(
+        self.assertTrue(
             self.store._can_claim_live_stream(
                 primary,
                 worker_id="live-worker-01",
@@ -272,7 +272,8 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
             "live-worker-01",
             self.store.get_worker_shared_secret(),
         )
-        self.assertIsNone(claimed)
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, "live-test")
 
     def test_forever_primary_with_active_backup_keeps_hot_standby_reclaim_policy(self) -> None:
         primary = make_stream(

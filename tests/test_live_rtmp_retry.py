@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 import sys
 import types
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -34,7 +35,25 @@ class LiveRtmpRetryTests(unittest.TestCase):
     def test_does_not_retry_non_ffmpeg_errors(self) -> None:
         self.assertFalse(_is_retriable_rtmp_output_error(RuntimeError("download failed")))
 
-    def test_does_not_retry_primary_stream_when_failover_backup_exists(self) -> None:
+    def test_retries_timed_primary_stream_when_parallel_backup_exists(self) -> None:
+        exc = RuntimeError(
+            "FFmpeg live runtime failed (224).\n"
+            "[out#0/flv] Error writing trailer: Broken pipe"
+        )
+
+        self.assertTrue(
+            _should_retry_rtmp_output_error(
+                {
+                    "runtime_role": "primary",
+                    "is_runtime_clone": False,
+                    "backup_worker_id": "live-worker-backup",
+                    "end_time_live": (datetime.now() + timedelta(hours=2)).isoformat(),
+                },
+                exc,
+            )
+        )
+
+    def test_does_not_retry_forever_primary_stream_when_failover_backup_exists(self) -> None:
         exc = RuntimeError(
             "FFmpeg live runtime failed (224).\n"
             "[out#0/flv] Error writing trailer: Broken pipe"
@@ -46,6 +65,8 @@ class LiveRtmpRetryTests(unittest.TestCase):
                     "runtime_role": "primary",
                     "is_runtime_clone": False,
                     "backup_worker_id": "live-worker-backup",
+                    "is_forever": True,
+                    "end_time_live": None,
                 },
                 exc,
             )
@@ -107,6 +128,32 @@ class LiveRtmpRetryTests(unittest.TestCase):
 
         self.assertEqual(len(calls), 2)
         self.assertIn("disconnected", statuses)
+
+    def test_stream_once_uses_ffmpeg_stream_loop_instead_of_python_looping_media(self) -> None:
+        statuses: list[str] = []
+
+        def report_progress(status: str, progress: int, message: str, *, force: bool = False) -> None:
+            statuses.append(status)
+
+        with patch.object(live_runner, "_run_ffmpeg_with_progress", return_value="paused") as run_ffmpeg:
+            result = live_runner._stream_once(
+                client=None,
+                config=SimpleNamespace(ffmpeg_bin="ffmpeg"),
+                stream_id="live-test",
+                rendered_path=Path("rendered.flv"),
+                rendered_duration=60.0,
+                rtmp_target="rtmps://a.rtmps.youtube.com/live2/key",
+                report_progress=report_progress,
+                end_time_live=None,
+            )
+
+        self.assertEqual(result, "paused")
+        ffmpeg_args = run_ffmpeg.call_args.args[1]
+        self.assertIn("-stream_loop", ffmpeg_args)
+        self.assertEqual(ffmpeg_args[ffmpeg_args.index("-stream_loop") + 1], "-1")
+        self.assertLess(ffmpeg_args.index("-stream_loop"), ffmpeg_args.index("-i"))
+        self.assertIn("-flvflags", ffmpeg_args)
+        self.assertIn("no_duration_filesize", ffmpeg_args)
 
 
 if __name__ == "__main__":

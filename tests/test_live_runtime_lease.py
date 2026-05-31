@@ -463,6 +463,58 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.assertEqual(self.store.live_streams[0].status, "disconnected")
         self.assertEqual(self.store.live_notifications, [])
 
+    def test_forever_backup_streaming_does_not_notify_backup_activation(self) -> None:
+        primary = make_stream(
+            status="disconnected",
+            lease_expires_at=datetime(2000, 1, 1),
+            first_streaming_started_at=datetime.now() - timedelta(minutes=5),
+        )
+        primary.backup_worker_id = "live-worker-backup"
+        primary.backup_stream_id = "live-backup"
+        backup = make_stream(
+            status="waiting",
+            lease_expires_at=datetime.now() + timedelta(minutes=5),
+        )
+        backup.id = "live-backup"
+        backup.primary_worker_id = "live-worker-backup"
+        backup.runtime_role = "backup"
+        backup.is_runtime_clone = True
+        backup.parent_stream_id = primary.id
+        backup.claimed_by_worker_id = "live-worker-backup"
+        backup.claimed_by_role = "backup"
+        self.store.live_workers.append(make_live_worker("live-worker-backup"))
+        self.store.live_streams = [primary, backup]
+
+        self.store.update_live_stream_progress(
+            stream_id=backup.id,
+            worker_id="live-worker-backup",
+            shared_secret=self.store.get_worker_shared_secret(),
+            status="streaming",
+            progress=0,
+            message="backup takeover",
+        )
+
+        self.assertEqual(self.store.live_notifications, [])
+
+    def test_forever_primary_disconnect_does_not_notify_live_disconnect(self) -> None:
+        primary = make_stream(
+            status="streaming",
+            lease_expires_at=datetime.now() + timedelta(minutes=5),
+            first_streaming_started_at=datetime.now() - timedelta(minutes=5),
+        )
+        primary.backup_worker_id = "live-worker-backup"
+        self.store.live_streams = [primary]
+
+        self.store.fail_live_stream_runtime(
+            stream_id=primary.id,
+            worker_id="live-worker-01",
+            shared_secret=self.store.get_worker_shared_secret(),
+            message="FFmpeg live runtime failed (224). Broken pipe",
+        )
+
+        self.assertEqual(self.store.live_streams[0].status, "disconnected")
+        self.assertEqual(self.store.live_notifications, [])
+
     def test_missing_heartbeat_after_scheduled_end_notifies_ended_not_disconnected(self) -> None:
         end_time = datetime(2026, 5, 12, 9, 30)
         reconcile_at = datetime(2026, 5, 12, 9, 31, 37)

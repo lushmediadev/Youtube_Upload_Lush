@@ -58,7 +58,7 @@
 | DEC-051 | Control-plane vua restart khong duoc expire worker/live qua som; monitor phai co startup grace truoc khi danh offline/disconnected/error tu heartbeat lease | Active | control-plane runtime resilience | High |
 | DEC-052 | Live worker la local supervisor co state/log rieng; heartbeat/lease miss ban dau chi danh dau `Mất telemetry`, khong ket luan runtime chet ngay | Active | live runtime + control-plane resilience | High |
 | DEC-053 | Neu primary `24/7` co backup va `Mất telemetry` keo dai qua `LIVE_TELEMETRY_FAILOVER_SECONDS` thi control-plane moi escalates sang failover backup va gui ops Telegram; live co `EndTimeLive` khong dung telemetry failover de bo primary vi backup da chay song song | Active | live runtime + failover resilience | High |
-| DEC-054 | RTMP retry cua live worker uu tien reconnect gan nhu tuc thi sau FFmpeg reset, va timed live co backup khong gui Telegram disconnect/backup-activated cho cac retry transient | Active | live runtime + alert dedupe | High |
+| DEC-054 | RTMP retry cua live worker uu tien reconnect gan nhu tuc thi sau FFmpeg reset; Telegram live chi nen bao start/end, khong bao disconnect/backup-activated cho cac retry transient | Active | live runtime + alert dedupe | High |
 
 ## Notes
 - `docs/DECISIONS.md` van giu full history va ly do chi tiet.

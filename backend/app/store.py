@@ -5920,6 +5920,14 @@ class AppStore:
     def _is_live_hot_standby_backup_clone(self, stream: LiveStreamRecord) -> bool:
         return bool(self._is_runtime_backup_clone(stream) and stream.is_forever and stream.end_time_live is None)
 
+    def _is_timed_parallel_backup_stream(self, stream: LiveStreamRecord) -> bool:
+        visible_stream = self._visible_live_stream_for_runtime(stream)
+        return bool(
+            not visible_stream.is_forever
+            and visible_stream.end_time_live is not None
+            and str(visible_stream.backup_worker_id or "").strip()
+        )
+
     def _live_stream_requires_fast_failover(self, stream: LiveStreamRecord) -> bool:
         visible_stream = self._visible_live_stream_for_runtime(stream)
         return bool(visible_stream.is_forever and visible_stream.backup_worker_id)
@@ -6406,7 +6414,10 @@ class AppStore:
                     return self._mark_visible_live_stream_ended(parent_stream, now=now, message=end_message)
             return None
 
-        should_notify_disconnect = self._should_notify_live_disconnect(stream, now=now)
+        should_notify_disconnect = self._should_notify_live_disconnect(
+            stream,
+            now=now,
+        ) and not self._is_timed_parallel_backup_stream(stream)
         if self._is_runtime_backup_clone(stream):
             stream.status = "error"
             stream.log_label = "Lỗi"
@@ -7125,7 +7136,11 @@ class AppStore:
                 if not was_streaming:
                     notification_chat_ids = self._live_stream_recipient_chat_ids(stream)
                     if self._is_runtime_backup_clone(stream):
-                        notification_message = self._live_backup_activated_message(stream, now=now)
+                        if self._is_timed_parallel_backup_stream(stream):
+                            notification_chat_ids = []
+                            notification_message = ""
+                        else:
+                            notification_message = self._live_backup_activated_message(stream, now=now)
                     elif self._is_visible_live_stream(stream) and first_streaming_transition:
                         notification_message = self._live_stream_started_message(stream, now=now)
             else:
@@ -7244,7 +7259,10 @@ class AppStore:
             worker = self._authenticate_live_worker(worker_id, shared_secret)
             stream = self._find_claimed_live_stream(stream_id, worker_id)
             now = self._now(trim=False)
-            should_notify_disconnect = self._should_notify_live_disconnect(stream, now=now)
+            should_notify_disconnect = self._should_notify_live_disconnect(
+                stream,
+                now=now,
+            ) and not self._is_timed_parallel_backup_stream(stream)
             if stream.status == "stopped":
                 stream.status_message = None
                 stream.lease_expires_at = None

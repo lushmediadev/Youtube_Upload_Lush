@@ -10,10 +10,14 @@ from unittest.mock import patch
 
 sys.modules.setdefault("gdown", types.ModuleType("gdown"))
 from workers.agent import live_runner
-from workers.agent.live_runner import _is_retriable_rtmp_output_error, _should_retry_rtmp_output_error
+from workers.agent.live_runner import _env_float, _is_retriable_rtmp_output_error, _should_retry_rtmp_output_error
 
 
 class LiveRtmpRetryTests(unittest.TestCase):
+    def test_live_rtmp_retry_delay_allows_zero_delay(self) -> None:
+        with patch.dict("os.environ", {"WORKER_LIVE_RTMP_RETRY_DELAY_SECONDS": "0"}):
+            self.assertEqual(_env_float("WORKER_LIVE_RTMP_RETRY_DELAY_SECONDS", 20.0, minimum=0.0), 0.0)
+
     def test_treats_ffmpeg_broken_pipe_as_retriable_rtmp_disconnect(self) -> None:
         exc = RuntimeError(
             "FFmpeg live runtime failed (224).\n"

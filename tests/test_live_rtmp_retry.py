@@ -36,6 +36,14 @@ class LiveRtmpRetryTests(unittest.TestCase):
 
         self.assertTrue(_is_retriable_rtmp_output_error(exc))
 
+    def test_retries_any_ffmpeg_live_runtime_failure_like_legacy_worker(self) -> None:
+        exc = RuntimeError(
+            "FFmpeg live runtime failed (152).\n"
+            "[tls] The specified session has been invalidated for some reason."
+        )
+
+        self.assertTrue(_is_retriable_rtmp_output_error(exc))
+
     def test_does_not_retry_non_ffmpeg_errors(self) -> None:
         self.assertFalse(_is_retriable_rtmp_output_error(RuntimeError("download failed")))
 
@@ -57,13 +65,13 @@ class LiveRtmpRetryTests(unittest.TestCase):
             )
         )
 
-    def test_does_not_retry_forever_primary_stream_when_failover_backup_exists(self) -> None:
+    def test_retries_forever_primary_stream_when_failover_backup_exists(self) -> None:
         exc = RuntimeError(
             "FFmpeg live runtime failed (224).\n"
             "[out#0/flv] Error writing trailer: Broken pipe"
         )
 
-        self.assertFalse(
+        self.assertTrue(
             _should_retry_rtmp_output_error(
                 {
                     "runtime_role": "primary",

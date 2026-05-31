@@ -1,5 +1,10 @@
 ﻿# Worklog
 
+### 2026-05-31
+- [x] Compared the legacy `LiveStreamAsync()` loop: the old worker did not whitelist RTMP error strings; after each FFmpeg live exit it logged the exit and immediately started another FFmpeg process until stop/end.
+- [x] Updated the new live runner to retry every `FFmpeg live runtime failed (...)` from the RTMP phase, including `24/7` primary streams that have backup, while keeping non-FFmpeg errors terminal.
+- [x] Verified with `python -m pytest tests\test_live_rtmp_retry.py tests\test_live_runtime_lease.py` and `python -m compileall workers\agent backend\app`.
+
 ### 2026-05-29
 - [x] Changed the admin BOT `Không hoạt động` column to use a daily snapshot refreshed after the 8h inactive-BOT alert window instead of recalculating on every table poll.
 - [x] Kept the column compact by only showing assigned users over the inactive threshold and rendering the full `username: N ngày` entry in red.

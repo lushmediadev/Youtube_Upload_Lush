@@ -188,42 +188,12 @@ def _is_hot_standby_backup_stream(stream: dict) -> bool:
     return runtime_role == "backup" and is_runtime_clone and is_forever and end_time_live is None
 
 
-def _has_live_failover_backup(stream: dict) -> bool:
-    runtime_role = str(stream.get("runtime_role") or "").strip().lower()
-    is_runtime_clone = bool(stream.get("is_runtime_clone"))
-    backup_worker_id = str(stream.get("backup_worker_id") or "").strip()
-    return runtime_role != "backup" and not is_runtime_clone and bool(backup_worker_id)
-
-
-def _is_timed_primary_with_parallel_backup(stream: dict) -> bool:
-    if not _has_live_failover_backup(stream):
-        return False
-    return _parse_control_plane_datetime(stream.get("end_time_live")) is not None
-
-
 def _is_retriable_rtmp_output_error(exc: BaseException) -> bool:
     message = str(exc or "").casefold()
-    if "ffmpeg live runtime failed" not in message:
-        return False
-    retriable_tokens = (
-        "rtmp output disconnected",
-        "connection reset by peer",
-        "broken pipe",
-        "end of file",
-        "error muxing a packet",
-        "error submitting a packet to the muxer",
-        "error writing trailer",
-        "error closing file",
-        "av_interleaved_write_frame",
-        "i/o error",
-        "input/output error",
-    )
-    return any(token in message for token in retriable_tokens)
+    return "ffmpeg live runtime failed" in message
 
 
 def _should_retry_rtmp_output_error(stream: dict, exc: BaseException) -> bool:
-    if _has_live_failover_backup(stream) and not _is_timed_primary_with_parallel_backup(stream):
-        return False
     return _is_retriable_rtmp_output_error(exc)
 
 

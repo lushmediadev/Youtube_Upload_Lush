@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+### 2026-05-31 14:20 - Legacy-style live FFmpeg retry classification
+- Changed: Live worker now treats every `FFmpeg live runtime failed (...)` raised from the RTMP push phase as retriable, matching the legacy app's behavior of immediately spawning FFmpeg again after any live FFmpeg exit.
+- Fixed: `24/7` primary streams with a backup now retry RTMP locally first; backup failover remains reserved for true worker/control telemetry loss beyond the failover threshold.
+- Affected files: `workers/agent/live_runner.py`, `tests/test_live_rtmp_retry.py`
+- Impact/Risk: Medium; live-worker-only rollout. This improves continuity after transient YouTube/RTMPS resets but must be monitored for invalid stream-key/media failures that would also retry until the user stops or the scheduled end is reached.
+
 ### 2026-05-29 00:00 - Daily inactive BOT table snapshot
 - Changed: The admin BOT table now reads `Không hoạt động` from a daily snapshot refreshed once after the inactive-BOT alert time instead of recalculating on every table poll.
 - Fixed: Inactive user entries over the threshold render the full `username: N ngày` line in red for both initial Jinja render and AJAX table refreshes.

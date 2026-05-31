@@ -34,7 +34,7 @@
 - Worker API loop co jitter/backoff de tranh nhieu worker cung heartbeat/claim dung mot nhip. Live worker dang ban chi probe `claim_live_stream` day hon khi vua thay khong co job moi, nhung status/progress/failover event van day len control-plane ngay khi co thay doi.
 - Worker la outbound-only; control plane khong push stateful browser runtime vao chinh no.
 - Live worker la local supervisor cho ffmpeg/live runtime; control-plane miss heartbeat/lease ban dau chi la telemetry stale, khong phai bang chung runtime da chet.
-- Neu primary live `24/7` co backup va telemetry stale qua `LIVE_TELEMETRY_FAILOVER_SECONDS` (mac dinh 180s), control-plane moi release primary claim de backup takeover va gui ops Telegram.
+- Neu primary live `24/7` co backup va telemetry stale qua `LIVE_TELEMETRY_FAILOVER_SECONDS` (mac dinh 120s), control-plane moi release primary claim de backup takeover va gui ops Telegram.
 - Live co `EndTimeLive` va backup la policy song song: primary + backup cung day RTMP den het lich, ca hai duoc retry doc lap, control-plane khong bo primary chi vi backup clone dang active.
 - Stream live co marker `Mất telemetry` chi duoc self-reclaim boi dung worker dang giu claim; worker khac khong duoc dung marker nay de cuop runtime.
 - Browser session va upload browser phai bam theo worker/VPS so huu.

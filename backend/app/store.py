@@ -5781,11 +5781,11 @@ class AppStore:
 
     @staticmethod
     def _live_telemetry_failover_seconds() -> int:
-        raw_value = str(os.getenv("LIVE_TELEMETRY_FAILOVER_SECONDS", "180")).strip()
+        raw_value = str(os.getenv("LIVE_TELEMETRY_FAILOVER_SECONDS", "120")).strip()
         try:
             return max(60, int(raw_value))
         except ValueError:
-            return 180
+            return 120
 
     @staticmethod
     def _live_progress_save_interval_seconds() -> int:

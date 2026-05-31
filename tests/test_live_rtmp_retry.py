@@ -10,13 +10,23 @@ from unittest.mock import patch
 
 sys.modules.setdefault("gdown", types.ModuleType("gdown"))
 from workers.agent import live_runner
-from workers.agent.live_runner import _env_float, _is_retriable_rtmp_output_error, _should_retry_rtmp_output_error
+from workers.agent.live_runner import (
+    _build_live_ffmpeg_arguments,
+    _env_bool,
+    _env_float,
+    _is_retriable_rtmp_output_error,
+    _should_retry_rtmp_output_error,
+)
 
 
 class LiveRtmpRetryTests(unittest.TestCase):
     def test_live_rtmp_retry_delay_allows_zero_delay(self) -> None:
         with patch.dict("os.environ", {"WORKER_LIVE_RTMP_RETRY_DELAY_SECONDS": "0"}):
             self.assertEqual(_env_float("WORKER_LIVE_RTMP_RETRY_DELAY_SECONDS", 20.0, minimum=0.0), 0.0)
+
+    def test_env_bool_parses_fifo_flag(self) -> None:
+        with patch.dict("os.environ", {"WORKER_LIVE_RTMP_FIFO_ENABLED": "true"}):
+            self.assertTrue(_env_bool("WORKER_LIVE_RTMP_FIFO_ENABLED"))
 
     def test_treats_ffmpeg_broken_pipe_as_retriable_rtmp_disconnect(self) -> None:
         exc = RuntimeError(
@@ -166,6 +176,22 @@ class LiveRtmpRetryTests(unittest.TestCase):
         self.assertLess(ffmpeg_args.index("-stream_loop"), ffmpeg_args.index("-i"))
         self.assertIn("-flvflags", ffmpeg_args)
         self.assertIn("no_duration_filesize", ffmpeg_args)
+
+    def test_fifo_command_is_opt_in_and_passes_flv_options_to_fifo_muxer(self) -> None:
+        with patch.object(live_runner, "LIVE_RTMP_FIFO_ENABLED", True):
+            ffmpeg_args = _build_live_ffmpeg_arguments(
+                rendered_path=Path("rendered.flv"),
+                rtmp_target="rtmps://a.rtmps.youtube.com/live2/key",
+            )
+
+        self.assertIn("-f", ffmpeg_args)
+        self.assertEqual(ffmpeg_args[ffmpeg_args.index("-f", ffmpeg_args.index("-c")) + 1], "fifo")
+        self.assertIn("-fifo_format", ffmpeg_args)
+        self.assertEqual(ffmpeg_args[ffmpeg_args.index("-fifo_format") + 1], "flv")
+        self.assertIn("-attempt_recovery", ffmpeg_args)
+        self.assertIn("-recover_any_error", ffmpeg_args)
+        self.assertIn("-format_opts", ffmpeg_args)
+        self.assertEqual(ffmpeg_args[ffmpeg_args.index("-format_opts") + 1], "flvflags=no_duration_filesize")
 
 
 if __name__ == "__main__":

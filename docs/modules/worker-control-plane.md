@@ -46,6 +46,7 @@
 - Runtime deploy drift giua local/GitHub/VPS tung xay ra; worker source can doi chieu production truoc khi sua cac bug kho.
 - Live incident can doi chieu local `worker-data/live-state/<stream_id>/current.json`, `events.log`, va `ffmpeg.log` tren worker truoc khi ket luan RTMP hay worker runtime hong.
 - Live RTMP command phai giu mot phien FFmpeg loop input bang `-stream_loop -1` thay vi Python restart FFmpeg sau moi vong media; neu YouTube bao ingest kem on dinh, kiem tra command thuc te trong `ffmpeg.log`.
+- Live RTMP co nhánh thử nghiệm opt-in `WORKER_LIVE_RTMP_FIFO_ENABLED=true`, dùng FFmpeg `fifo` muxer với recovery cho output network; mặc định tắt và chỉ bật theo từng worker/job test sau khi kiểm chứng thực tế.
 - `worker-data/live-state/*` la log/state local dai hon runtime `live-streams/*`; janitor xoa theo `WORKER_LIVE_STATE_RETENTION_HOURS` (mac dinh 168h) de tranh phinh disk.
 
 ## Related Decisions

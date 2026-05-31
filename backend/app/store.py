@@ -6575,7 +6575,18 @@ class AppStore:
                 continue
             if str(stream.status or "").strip().lower() not in self._live_worker_active_statuses():
                 continue
-            if stream.lease_expires_at is not None and stream.lease_expires_at > now:
+            has_active_lease = stream.lease_expires_at is not None and stream.lease_expires_at > now
+            if not active_stream_id_set and has_active_lease:
+                stream_changed, _notification_payload = self._mark_live_stream_telemetry_stale(
+                    stream,
+                    now=now,
+                    reason="Worker vừa heartbeat nhưng không báo runtime live local nào; cho phép worker tự claim lại luồng đang giữ.",
+                )
+                if _notification_payload is not None:
+                    self._notify_live_telegram_chat_ids(_notification_payload[0], _notification_payload[1])
+                changed = stream_changed or changed
+                continue
+            if has_active_lease:
                 continue
             escalated, live_notification, ops_notification = self._escalate_live_stream_telemetry_stale(
                 stream,

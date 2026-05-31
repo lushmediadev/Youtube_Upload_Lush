@@ -206,6 +206,84 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.assertEqual(self.store.live_workers[0].load_percent, 5)
         self.assertEqual(self.store.save_calls, 0)
 
+    def test_live_worker_restart_can_reclaim_orphaned_streaming_runtime(self) -> None:
+        self.store.live_streams = [
+            make_stream(
+                status="streaming",
+                lease_expires_at=datetime.now() + timedelta(minutes=5),
+                first_streaming_started_at=datetime.now() - timedelta(minutes=10),
+            )
+        ]
+        payload = type(
+            "Payload",
+            (),
+            {
+                "worker_id": "live-worker-01",
+                "shared_secret": self.store.get_worker_shared_secret(),
+                "status": "online",
+                "load_percent": 1,
+                "ram_percent": 2,
+                "ram_used_gb": 0.1,
+                "ram_total_gb": 1.0,
+                "bandwidth_kbps": 3.0,
+                "disk_used_gb": 4.0,
+                "disk_total_gb": 100.0,
+                "capacity": 1,
+                "threads": 1,
+                "active_stream_ids": [],
+            },
+        )()
+
+        self.store.heartbeat_live_worker(payload)
+        _worker, claimed = self.store.claim_next_live_stream(
+            "live-worker-01",
+            self.store.get_worker_shared_secret(),
+        )
+
+        self.assertEqual(self.store.live_streams[0].log_label, "Mất telemetry")
+        self.assertIsNotNone(self.store.live_streams[0].telemetry_stale_at)
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, "live-test")
+        self.assertEqual(self.store.live_streams[0].claimed_by_worker_id, "live-worker-01")
+
+    def test_live_worker_heartbeat_keeps_active_runtime_when_reported(self) -> None:
+        self.store.live_streams = [
+            make_stream(
+                status="streaming",
+                lease_expires_at=datetime.now() + timedelta(minutes=5),
+                first_streaming_started_at=datetime.now() - timedelta(minutes=10),
+            )
+        ]
+        payload = type(
+            "Payload",
+            (),
+            {
+                "worker_id": "live-worker-01",
+                "shared_secret": self.store.get_worker_shared_secret(),
+                "status": "busy",
+                "load_percent": 1,
+                "ram_percent": 2,
+                "ram_used_gb": 0.1,
+                "ram_total_gb": 1.0,
+                "bandwidth_kbps": 3.0,
+                "disk_used_gb": 4.0,
+                "disk_total_gb": 100.0,
+                "capacity": 1,
+                "threads": 1,
+                "active_stream_ids": ["live-test"],
+            },
+        )()
+
+        self.store.heartbeat_live_worker(payload)
+        _worker, claimed = self.store.claim_next_live_stream(
+            "live-worker-01",
+            self.store.get_worker_shared_secret(),
+        )
+
+        self.assertNotEqual(self.store.live_streams[0].log_label, "Mất telemetry")
+        self.assertIsNone(self.store.live_streams[0].telemetry_stale_at)
+        self.assertIsNone(claimed)
+
     def test_noop_live_claim_does_not_persist_state(self) -> None:
         _worker, claimed = self.store.claim_next_live_stream(
             "live-worker-01",

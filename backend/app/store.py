@@ -1706,11 +1706,11 @@ class AppStore:
                     level=level,
                     manager_id=manager_id,
                 )
-            self.worker_operation_tasks = [
-                existing
-                for existing in self.worker_operation_tasks
-                if str(existing.get("id") or "").strip() != str(operation_id or "").strip()
-            ]
+            now = self._now(trim=False)
+            task["status"] = "failed"
+            task["message"] = task_message
+            task["updated_at"] = now
+            task["completed_at"] = None
             self._save_state()
         self._resume_worker_operation_queue()
 

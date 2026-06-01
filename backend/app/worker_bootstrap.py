@@ -213,6 +213,20 @@ def build_worker_bootstrap_control_plane_url(fallback_url: str | None = None) ->
     raise WorkerBootstrapError("Chưa có WORKER_BOOTSTRAP_CONTROL_PLANE_URL để bootstrap worker.")
 
 
+def normalize_ssh_user(value: str | None, *, default: str = "root") -> str:
+    raw_value = str(value or "").strip()
+    normalized_default = str(default or "root").strip() or "root"
+    if not raw_value:
+        return normalized_default
+    if raw_value.lower().startswith("ssh "):
+        parts = raw_value.split()
+        raw_value = parts[-1] if parts else ""
+    if "@" in raw_value:
+        raw_value = raw_value.split("@", 1)[0]
+    raw_value = raw_value.strip()
+    return raw_value or normalized_default
+
+
 def build_worker_bootstrap_request(
     *,
     vps_ip: str,
@@ -231,7 +245,7 @@ def build_worker_bootstrap_request(
     normalized_ip = str(vps_ip or "").strip()
     if not normalized_ip:
         raise WorkerBootstrapError("VPS IP là bắt buộc.")
-    normalized_user = str(ssh_user or "").strip() or "root"
+    normalized_user = normalize_ssh_user(ssh_user)
     normalized_key = str(ssh_private_key or "").strip()
     normalized_password = str(password or "").strip()
     if not normalized_key and not normalized_password:
@@ -268,7 +282,7 @@ def build_worker_decommission_request(
     normalized_ip = str(vps_ip or "").strip()
     if not normalized_ip:
         raise WorkerBootstrapError("VPS IP là bắt buộc.")
-    normalized_user = str(ssh_user or "").strip() or "root"
+    normalized_user = normalize_ssh_user(ssh_user)
     normalized_key = str(ssh_private_key or "").strip()
     normalized_password = str(password or "").strip()
     if not normalized_key and not normalized_password:

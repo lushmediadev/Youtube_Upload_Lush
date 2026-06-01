@@ -376,12 +376,13 @@
                     {% set created_parts = (worker.created_at or '').split(' ') %}
                     {% set compact_operation_row = worker.row_dimmed and worker.actions_disabled %}
                     {% set operation_is_delete = worker.operation_kind == 'decommission' %}
+                    {% set operation_is_failed = worker.operation_status == 'failed' %}
                     {% set worker_workspace_kind = worker.workspace_kind or 'upload' %}
                     {% set worker_is_live = worker_workspace_kind == 'live' %}
                     {% set operation_shell_class = 'border-indigo-100 bg-white shadow-[0_12px_28px_rgba(79,70,229,0.10)]' %}
                     {% set operation_icon_class = 'bg-indigo-50 text-indigo-600' %}
                     {% set operation_spinner_class = 'border-indigo-200 border-t-indigo-600' %}
-                    {% if operation_is_delete %}
+                    {% if operation_is_delete or operation_is_failed %}
                     {% set operation_shell_class = 'border-rose-100 bg-white shadow-[0_12px_28px_rgba(244,63,94,0.10)]' %}
                     {% set operation_icon_class = 'bg-rose-50 text-rose-600' %}
                     {% set operation_spinner_class = 'border-rose-200 border-t-rose-600' %}
@@ -398,7 +399,11 @@
                             <div class="rounded-[18px] border px-4 py-3 {{ operation_shell_class }}">
                                 <div class="flex items-start gap-3">
                                     <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl {{ operation_icon_class }}">
+                                        {% if operation_is_failed %}
+                                        <i data-lucide="x-circle" class="h-4 w-4"></i>
+                                        {% else %}
                                         <span class="inline-flex h-4 w-4 animate-spin rounded-full border-2 {{ operation_spinner_class }}"></span>
+                                        {% endif %}
                                     </div>
                                     <div class="min-w-0 flex-1">
                                         <p class="table-mono truncate text-[12px] font-semibold text-slate-500">{{ worker.name }}</p>
@@ -1187,7 +1192,7 @@
         createBotSshUserLabel.textContent = isKeyMode ? 'SSH user' : 'Root user';
       }
       if (createBotSshUserInput) {
-        createBotSshUserInput.placeholder = isKeyMode ? 'ssh ubuntu@51.91.242.160' : '';
+        createBotSshUserInput.placeholder = isKeyMode ? 'ubuntu' : '';
         const currentSshUser = String(createBotSshUserInput.value || '').trim();
         if (isKeyMode && currentSshUser === 'root') {
           createBotSshUserInput.value = '';
@@ -1569,7 +1574,8 @@
 
     function operationVisual(worker) {
       const isDelete = worker.operation_kind === 'decommission';
-      return isDelete
+      const isFailure = worker.operation_status === 'failed';
+      return (isDelete || isFailure)
         ? {
             shell: 'border-rose-100 bg-white shadow-[0_12px_28px_rgba(244,63,94,0.10)]',
             icon: 'bg-rose-50 text-rose-600',
@@ -1647,9 +1653,13 @@
 
     function buildCompactOperationRowMarkup(worker, workerId, searchText) {
       const visual = operationVisual(worker);
+      const isFailure = worker.operation_status === 'failed';
       const workerName = escapeHtml(worker.name || '-');
       const statusLabel = escapeHtml(worker.status_label || 'Đang xử lý...');
       const metaText = escapeHtml(worker.meta_text || 'Control-plane đang xử lý trên VPS.');
+      const indicatorMarkup = isFailure
+        ? '<i data-lucide="x-circle" class="h-4 w-4"></i>'
+        : '<span class="inline-flex h-4 w-4 animate-spin rounded-full border-2 ' + visual.spinner + '"></span>';
       return [
         '<tr data-worker-row-id="', workerId, '" data-search-text="', searchText, '">',
         '  <td class="table-mono text-slate-500">', escapeHtml(worker.index), '</td>',
@@ -1657,7 +1667,7 @@
         '    <div class="rounded-[18px] border px-4 py-3 ', visual.shell, '">',
         '      <div class="flex items-start gap-3">',
         '        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ', visual.icon, '">',
-        '          <span class="inline-flex h-4 w-4 animate-spin rounded-full border-2 ', visual.spinner, '"></span>',
+        '          ', indicatorMarkup,
         '        </div>',
         '        <div class="min-w-0 flex-1">',
         '          <p class="table-mono truncate text-[12px] font-semibold text-slate-500">', workerName, '</p>',

@@ -34,6 +34,7 @@ from ..worker_bootstrap import (
     WorkerBootstrapError,
     build_worker_decommission_request,
     build_worker_bootstrap_request,
+    normalize_ssh_user,
     start_worker_decommission_operation,
     start_worker_install_operation,
 )
@@ -1724,7 +1725,7 @@ async def admin_bot_create(request: Request):
         "live" if requested_bot_kind in {"primary", "backup"} else requested_bot_kind or str(form.get("workspace") or "").strip()
     )
     vps_ip = str(form.get("vps_ip") or "").strip()
-    ssh_user = str(form.get("ssh_user") or "").strip() or "root"
+    ssh_user = normalize_ssh_user(str(form.get("ssh_user") or "").strip())
     return_user_id = str(form.get("return_user_id") or "").strip() or None
     auth_mode = str(form.get("auth_mode") or "password").strip().lower() or "password"
     auth_mode = "ssh_key" if auth_mode == "ssh_key" else "password"

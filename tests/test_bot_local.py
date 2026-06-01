@@ -13,6 +13,7 @@ from backend.app.worker_bootstrap import (
     WorkerDecommissionRequest,
     _decommission_request_from_task,
     _run_worker_decommission_operation,
+    normalize_ssh_user,
 )
 
 
@@ -225,6 +226,69 @@ class BotLocalTests(unittest.TestCase):
 
         self.assertEqual(row["name"], "82.197.71.52")
         self.assertEqual(row["local"], "UK")
+
+    def test_failed_install_operation_stays_visible_until_retry(self) -> None:
+        self.store.workers = []
+        task = self.store.enqueue_worker_install_operation(
+            worker_id="live-worker-65",
+            worker_name="51.91.242.160",
+            vps_ip="51.91.242.160",
+            threads=1,
+            ssh_user="ubuntu",
+            auth_mode="ssh_key",
+            ssh_private_key="-----BEGIN OPENSSH PRIVATE KEY-----\nold\n-----END OPENSSH PRIVATE KEY-----",
+            manager_id="manager-1",
+            manager_name="manager",
+            group="workers",
+            workspace_mode="live",
+            requested_by="manager",
+            requested_role="manager",
+            requested_user_id="manager-1",
+            post_install_config={"live_role": "primary", "local": "EU", "threads": 1},
+        )
+
+        self.store.fail_worker_operation(task["id"], message="SSH key không còn đúng với máy thật.")
+
+        self.assertEqual(len(self.store.worker_operation_tasks), 1)
+        failed_task = self.store.worker_operation_tasks[0]
+        self.assertEqual(failed_task["status"], "failed")
+        self.assertIn("SSH key", failed_task["message"])
+        row = self.store._build_bot_rows(workspace_mode="live")[0]
+        self.assertEqual(row["id"], "live-worker-65")
+        self.assertEqual(row["operation_status"], "failed")
+        self.assertEqual(row["status_label"], "Cài đặt lỗi")
+        self.assertIn("SSH key", row["meta_text"])
+
+        retry_task = self.store.enqueue_worker_install_operation(
+            worker_id="live-worker-65",
+            worker_name="51.91.242.160",
+            vps_ip="51.91.242.160",
+            threads=1,
+            ssh_user="ubuntu",
+            auth_mode="ssh_key",
+            ssh_private_key="-----BEGIN OPENSSH PRIVATE KEY-----\nnew\n-----END OPENSSH PRIVATE KEY-----",
+            manager_id="manager-1",
+            manager_name="manager",
+            group="workers",
+            workspace_mode="live",
+            requested_by="manager",
+            requested_role="manager",
+            requested_user_id="manager-1",
+            post_install_config={"live_role": "primary", "local": "EU", "threads": 1},
+        )
+
+        self.assertEqual(len(self.store.worker_operation_tasks), 1)
+        self.assertEqual(self.store.worker_operation_tasks[0]["id"], retry_task["id"])
+        self.assertEqual(self.store.worker_operation_tasks[0]["status"], "queued")
+        profile = self.store.get_worker_connection_profile("live-worker-65", workspace_mode="live")
+        self.assertEqual(profile["ssh_user"], "ubuntu")
+        self.assertIn("new", profile["ssh_private_key"])
+
+    def test_normalize_ssh_user_accepts_full_ssh_command_or_user_at_host(self) -> None:
+        self.assertEqual(normalize_ssh_user("ssh ubuntu@51.91.242.160"), "ubuntu")
+        self.assertEqual(normalize_ssh_user("ubuntu@51.91.242.160"), "ubuntu")
+        self.assertEqual(normalize_ssh_user("root"), "root")
+        self.assertEqual(normalize_ssh_user(""), "root")
 
     def test_empty_live_bot_update_persists_backup_role(self) -> None:
         self.store.workers = []

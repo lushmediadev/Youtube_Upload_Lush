@@ -13,6 +13,7 @@ from ..worker_bootstrap import (
     WorkerBootstrapError,
     build_worker_bootstrap_request,
     build_worker_decommission_request,
+    normalize_ssh_user,
     start_worker_decommission_operation,
     start_worker_install_operation,
 )
@@ -617,6 +618,7 @@ async def install_admin_bot(request: Request, payload: AdminBotInstallPayload):
         if workspace_mode == "live"
         else store.suggest_next_worker_bootstrap_id()
     )
+    ssh_user = normalize_ssh_user(payload.ssh_user)
     auth_mode = str(payload.auth_mode or "password").strip().lower() or "password"
     auth_mode = "ssh_key" if auth_mode == "ssh_key" else "password"
     requested_name = str(payload.name or "").strip() or None
@@ -668,7 +670,7 @@ async def install_admin_bot(request: Request, payload: AdminBotInstallPayload):
     try:
         bootstrap_request = build_worker_bootstrap_request(
             vps_ip=payload.vps_ip,
-            ssh_user=payload.ssh_user,
+            ssh_user=ssh_user,
             password=payload.password if auth_mode != "ssh_key" else None,
             ssh_private_key=payload.ssh_private_key if auth_mode == "ssh_key" else None,
             shared_secret=store.get_worker_shared_secret(),
@@ -686,7 +688,7 @@ async def install_admin_bot(request: Request, payload: AdminBotInstallPayload):
         task = start_worker_install_operation(
             store=store,
             request=bootstrap_request,
-            ssh_user=payload.ssh_user,
+            ssh_user=ssh_user,
             auth_mode=auth_mode,
             password=payload.password if auth_mode != "ssh_key" else None,
             ssh_private_key=payload.ssh_private_key if auth_mode == "ssh_key" else None,

@@ -1727,6 +1727,7 @@ async def admin_bot_create(request: Request):
     ssh_user = str(form.get("ssh_user") or "").strip() or "root"
     return_user_id = str(form.get("return_user_id") or "").strip() or None
     auth_mode = str(form.get("auth_mode") or "password").strip().lower() or "password"
+    auth_mode = "ssh_key" if auth_mode == "ssh_key" else "password"
     password = str(form.get("password") or "").strip()
     ssh_private_key = str(form.get("ssh_private_key") or "").replace("\r\n", "\n").strip()
     return_manager_ids = [str(value).strip() for value in form.getlist("return_manager_ids") if str(value).strip()]

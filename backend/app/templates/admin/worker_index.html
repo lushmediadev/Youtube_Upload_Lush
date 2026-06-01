@@ -59,6 +59,37 @@
         white-space: normal;
     }
 
+    .create-bot-auth-switch {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 32px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        padding: 0 10px;
+        color: rgb(79 70 229);
+        font-size: 12px;
+        font-weight: 700;
+        transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+    }
+
+    .create-bot-auth-switch:hover,
+    .create-bot-auth-switch:focus-visible {
+        border-color: rgb(224 231 255);
+        background: rgb(238 242 255);
+        box-shadow: 0 6px 16px rgba(79, 70, 229, 0.10);
+        outline: none;
+    }
+
+    .create-bot-private-key-input {
+        min-height: 132px;
+        resize: vertical;
+        font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.5;
+    }
+
     .bot-user-picker {
         position: relative;
     }
@@ -495,11 +526,17 @@
             {% endif %}
 
             <div class="border-b border-slate-200 px-5 py-4">
-                <h3 class="section-title" data-create-bot-title>Th&#234;m BOT</h3>
-                    <p class="section-note" data-create-bot-description>Nh&#7853;p IP VPS, root credential v&#224; c&#7845;u h&#236;nh s&#417; b&#7897; ngay trong modal n&#224;y. Manager, user, Local v&#224; group c&#243; th&#7875; &#273;&#7875; tr&#7889;ng n&#7871;u mu&#7889;n g&#225;n sau.</p>
+                <div class="flex items-start justify-between gap-4">
+                    <div class="min-w-0">
+                        <h3 class="section-title" data-create-bot-title>Th&#234;m BOT</h3>
+                        <p class="section-note" data-create-bot-description>Nh&#7853;p IP VPS, root credential v&#224; c&#7845;u h&#236;nh s&#417; b&#7897; ngay trong modal n&#224;y. Manager, user, Local v&#224; group c&#243; th&#7875; &#273;&#7875; tr&#7889;ng n&#7871;u mu&#7889;n g&#225;n sau.</p>
+                    </div>
+                    <button type="button" class="create-bot-auth-switch shrink-0" data-create-bot-auth-toggle>+ Nh&#7853;p SSH key</button>
+                </div>
             </div>
             <div class="space-y-3 px-5 pt-3 pb-4">
                 <input type="hidden" name="manage_user_assignments" value="1">
+                <input type="hidden" name="auth_mode" id="create-bot-auth-mode" value="password">
                 <div>
                     <label class="field-label" for="create-bot-vps-ip">VPS IP</label>
                     <input
@@ -513,7 +550,7 @@
                     >
                 </div>
                 <div>
-                    <label class="field-label" for="create-bot-ssh-user">Root user</label>
+                    <label class="field-label" for="create-bot-ssh-user" data-create-bot-ssh-user-label>Root user</label>
                     <input
                         class="toolbar-input"
                         id="create-bot-ssh-user"
@@ -524,7 +561,7 @@
                         spellcheck="false"
                     >
                 </div>
-                <div>
+                <div data-create-bot-password-field>
                     <label class="field-label" for="create-bot-password">Password root</label>
                     <input
                         class="toolbar-input"
@@ -536,6 +573,19 @@
                         autocapitalize="off"
                         spellcheck="false"
                     >
+                </div>
+                <div data-create-bot-key-field hidden>
+                    <label class="field-label" for="create-bot-ssh-private-key">Private key SSH</label>
+                    <textarea
+                        class="toolbar-input create-bot-private-key-input"
+                        id="create-bot-ssh-private-key"
+                        name="ssh_private_key"
+                        autocomplete="off"
+                        autocapitalize="off"
+                        spellcheck="false"
+                        placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                    ></textarea>
+                    <p class="mt-1 text-[11px] text-slate-500">D&#225;n private key kh&#7899;p v&#7899;i public key &#273;&#227; g&#7855;n tr&#234;n VPS. Control-plane s&#7869; d&#249;ng key n&#224;y &#273;&#7875; c&#224;i v&#224; g&#7905; BOT sau n&#224;y.</p>
                 </div>
                 <div>
                     <input type="hidden" name="workspace" id="create-bot-workspace-hidden" value="upload">
@@ -848,7 +898,14 @@
     const createBotWorkspaceHiddenInput = document.getElementById('create-bot-workspace-hidden');
     const createBotLiveRoleHiddenInput = document.getElementById('create-bot-live-role-hidden');
     const createBotIpInput = document.getElementById('create-bot-vps-ip');
+    const createBotAuthModeInput = document.getElementById('create-bot-auth-mode');
+    const createBotAuthToggle = document.querySelector('[data-create-bot-auth-toggle]');
+    const createBotSshUserLabel = document.querySelector('[data-create-bot-ssh-user-label]');
+    const createBotSshUserInput = document.getElementById('create-bot-ssh-user');
+    const createBotPasswordField = document.querySelector('[data-create-bot-password-field]');
     const createBotPasswordInput = document.getElementById('create-bot-password');
+    const createBotKeyField = document.querySelector('[data-create-bot-key-field]');
+    const createBotSshPrivateKeyInput = document.getElementById('create-bot-ssh-private-key');
     const createBotLocalInput = document.getElementById('create-bot-local');
     const createBotGroupInput = document.getElementById('create-bot-group');
     const createBotManagerSelect = document.getElementById('create-bot-manager-id');
@@ -1008,6 +1065,10 @@
       if (createBotPasswordInput) {
         createBotPasswordInput.value = '';
       }
+      if (createBotSshPrivateKeyInput) {
+        createBotSshPrivateKeyInput.value = '';
+      }
+      setCreateBotAuthMode('password');
       if (createBotKindSelect) {
         syncEnhancedSelectValue(createBotKindSelect, 'upload');
       }
@@ -1086,6 +1147,48 @@
 
     function currentCreateBotConfig() {
       return createBotDefaults[currentCreateBotFunctionValue()] || createBotDefaults.upload;
+    }
+
+    function currentCreateBotAuthMode() {
+      const rawMode = String(createBotAuthModeInput ? createBotAuthModeInput.value || 'password' : 'password').trim().toLowerCase();
+      return rawMode === 'ssh_key' ? 'ssh_key' : 'password';
+    }
+
+    function setCreateBotAuthMode(authMode) {
+      const nextMode = String(authMode || '').trim().toLowerCase() === 'ssh_key' ? 'ssh_key' : 'password';
+      const isKeyMode = nextMode === 'ssh_key';
+      if (createBotAuthModeInput) {
+        createBotAuthModeInput.value = nextMode;
+      }
+      if (createBotAuthToggle) {
+        createBotAuthToggle.textContent = isKeyMode ? '+ D\u00f9ng password' : '+ Nh\u1eadp SSH key';
+      }
+      if (createBotSshUserLabel) {
+        createBotSshUserLabel.textContent = isKeyMode ? 'SSH user' : 'Root user';
+      }
+      if (createBotSshUserInput && !String(createBotSshUserInput.value || '').trim()) {
+        createBotSshUserInput.value = 'root';
+      }
+      if (createBotPasswordField) {
+        createBotPasswordField.hidden = isKeyMode;
+      }
+      if (createBotPasswordInput) {
+        createBotPasswordInput.disabled = isKeyMode;
+        createBotPasswordInput.required = !isKeyMode;
+        if (isKeyMode) {
+          createBotPasswordInput.value = '';
+        }
+      }
+      if (createBotKeyField) {
+        createBotKeyField.hidden = !isKeyMode;
+      }
+      if (createBotSshPrivateKeyInput) {
+        createBotSshPrivateKeyInput.disabled = !isKeyMode;
+        createBotSshPrivateKeyInput.required = isKeyMode;
+        if (!isKeyMode) {
+          createBotSshPrivateKeyInput.value = '';
+        }
+      }
     }
 
     function currentCreateBotManagerId() {
@@ -2268,11 +2371,25 @@
       });
     }
 
+    if (createBotAuthToggle) {
+      createBotAuthToggle.addEventListener('click', function () {
+        const nextMode = currentCreateBotAuthMode() === 'ssh_key' ? 'password' : 'ssh_key';
+        setCreateBotAuthMode(nextMode);
+        const focusTarget = nextMode === 'ssh_key' ? createBotSshPrivateKeyInput : createBotPasswordInput;
+        if (focusTarget) {
+          window.setTimeout(function () {
+            focusTarget.focus();
+          }, 20);
+        }
+      });
+    }
+
     window.addEventListener('resize', updateBotUserPickerMenuPosition);
     window.addEventListener('resize', updateCreateBotUserPickerMenuPosition);
     window.addEventListener('scroll', updateBotUserPickerMenuPosition, true);
     window.addEventListener('scroll', updateCreateBotUserPickerMenuPosition, true);
 
+    setCreateBotAuthMode('password');
     syncCreateBotWorkspaceState();
     syncEditBotRoleOptions('upload');
     syncEditBotWorkspaceState();
@@ -2309,16 +2426,32 @@
       const selectedManagerId = currentCreateBotManagerId();
       const selectedLiveRole = currentCreateBotFunctionValue();
       const selectedThreads = currentCreateBotThreads();
+      const authMode = currentCreateBotAuthMode();
+      const passwordValue = String(formData.get('password') || '');
+      const privateKeyValue = String(createBotSshPrivateKeyInput ? createBotSshPrivateKeyInput.value || '' : formData.get('ssh_private_key') || '')
+        .replace(/\r\n/g, '\n')
+        .trim();
       if (assignedUserIds.length && !selectedManagerId) {
         setSubmitLoading(createBotSubmit, false, loadingLabel);
         showSystemNotice('H\u00e3y ch\u1ecdn manager tr\u01b0\u1edbc khi g\u00e1n user cho BOT m\u1edbi.', 'error');
         return;
       }
+      if (authMode === 'password' && !passwordValue) {
+        setSubmitLoading(createBotSubmit, false, loadingLabel);
+        showSystemNotice('H\u00e3y nh\u1eadp password root ho\u1eb7c chuy\u1ec3n sang SSH key.', 'error');
+        return;
+      }
+      if (authMode === 'ssh_key' && !privateKeyValue) {
+        setSubmitLoading(createBotSubmit, false, loadingLabel);
+        showSystemNotice('H\u00e3y d\u00e1n to\u00e0n b\u1ed9 n\u1ed9i dung private key SSH.', 'error');
+        return;
+      }
       const payload = {
         vps_ip: String(formData.get('vps_ip') || '').trim(),
         ssh_user: String(formData.get('ssh_user') || '').trim() || 'root',
-        auth_mode: 'password',
-        password: String(formData.get('password') || ''),
+        auth_mode: authMode,
+        password: authMode === 'password' ? passwordValue : null,
+        ssh_private_key: authMode === 'ssh_key' ? privateKeyValue : null,
         workspace: workspaceKind,
         local: String(formData.get('local') || '').trim(),
         group: String(formData.get('group') || '').trim(),

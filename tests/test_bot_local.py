@@ -11,6 +11,7 @@ from backend.app.store import AppStore
 from backend.app.worker_bootstrap import (
     WorkerBootstrapError,
     WorkerDecommissionRequest,
+    _decommission_request_from_task,
     _run_worker_decommission_operation,
 )
 
@@ -182,6 +183,31 @@ class BotLocalTests(unittest.TestCase):
         self.assertEqual(self.store.worker_operation_tasks, [])
         self.assertNotIn("worker-eu", self.store.worker_connection_profiles)
         self.assertEqual(self.store.deleted_workers["worker-eu"]["reason"], "ssh_unreachable")
+
+    def test_decommission_request_uses_saved_ssh_private_key_profile(self) -> None:
+        self.store.worker_connection_profiles = {
+            "worker-eu": {
+                "vps_ip": "109.123.233.131",
+                "ssh_user": "ubuntu",
+                "auth_mode": "ssh_key",
+                "ssh_private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\nkey\n-----END OPENSSH PRIVATE KEY-----",
+                "password": "old-pass",
+            }
+        }
+        task = {
+            "worker_id": "worker-eu",
+            "vps_ip": "109.123.233.131",
+            "workspace_mode": "upload",
+        }
+
+        request = _decommission_request_from_task(self.store, task)
+
+        self.assertEqual(request.ssh_user, "ubuntu")
+        self.assertIsNone(request.password)
+        self.assertEqual(
+            request.ssh_private_key,
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nkey\n-----END OPENSSH PRIVATE KEY-----",
+        )
 
     def test_pending_install_placeholder_exposes_requested_local(self) -> None:
         row = self.store._build_operation_placeholder_row(

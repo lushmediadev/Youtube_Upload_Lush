@@ -618,6 +618,7 @@ async def install_admin_bot(request: Request, payload: AdminBotInstallPayload):
         else store.suggest_next_worker_bootstrap_id()
     )
     auth_mode = str(payload.auth_mode or "password").strip().lower() or "password"
+    auth_mode = "ssh_key" if auth_mode == "ssh_key" else "password"
     requested_name = str(payload.name or "").strip() or None
     requested_local = str(payload.local or "").strip() or None
     requested_group = str(payload.group or "").strip() or None

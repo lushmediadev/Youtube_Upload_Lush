@@ -90,6 +90,26 @@
         line-height: 1.5;
     }
 
+    #create-bot-dialog.admin-dialog {
+        overflow: hidden;
+    }
+
+    #create-bot-dialog.admin-dialog .panel,
+    #create-bot-dialog.admin-dialog form {
+        max-height: min(90vh, 760px);
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #create-bot-dialog.admin-dialog [data-create-bot-scroll-body] {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+    }
+
     .bot-user-picker {
         position: relative;
     }
@@ -531,10 +551,10 @@
                         <h3 class="section-title" data-create-bot-title>Th&#234;m BOT</h3>
                         <p class="section-note" data-create-bot-description>Nh&#7853;p IP VPS, root credential v&#224; c&#7845;u h&#236;nh s&#417; b&#7897; ngay trong modal n&#224;y. Manager, user, Local v&#224; group c&#243; th&#7875; &#273;&#7875; tr&#7889;ng n&#7871;u mu&#7889;n g&#225;n sau.</p>
                     </div>
-                    <button type="button" class="create-bot-auth-switch shrink-0" data-create-bot-auth-toggle>+ Nh&#7853;p SSH key</button>
+                    <button type="button" class="create-bot-auth-switch shrink-0" data-create-bot-auth-toggle>Nh&#7853;p SSH key</button>
                 </div>
             </div>
-            <div class="space-y-3 px-5 pt-3 pb-4">
+            <div class="space-y-3 px-5 pt-3 pb-4" data-create-bot-scroll-body>
                 <input type="hidden" name="manage_user_assignments" value="1">
                 <input type="hidden" name="auth_mode" id="create-bot-auth-mode" value="password">
                 <div>
@@ -1161,13 +1181,19 @@
         createBotAuthModeInput.value = nextMode;
       }
       if (createBotAuthToggle) {
-        createBotAuthToggle.textContent = isKeyMode ? '+ D\u00f9ng password' : '+ Nh\u1eadp SSH key';
+        createBotAuthToggle.textContent = isKeyMode ? 'D\u00f9ng password' : 'Nh\u1eadp SSH key';
       }
       if (createBotSshUserLabel) {
         createBotSshUserLabel.textContent = isKeyMode ? 'SSH user' : 'Root user';
       }
-      if (createBotSshUserInput && !String(createBotSshUserInput.value || '').trim()) {
-        createBotSshUserInput.value = 'root';
+      if (createBotSshUserInput) {
+        createBotSshUserInput.placeholder = isKeyMode ? 'ssh ubuntu@51.91.242.160' : '';
+        const currentSshUser = String(createBotSshUserInput.value || '').trim();
+        if (isKeyMode && currentSshUser === 'root') {
+          createBotSshUserInput.value = '';
+        } else if (!isKeyMode && !currentSshUser) {
+          createBotSshUserInput.value = 'root';
+        }
       }
       if (createBotPasswordField) {
         createBotPasswordField.hidden = isKeyMode;

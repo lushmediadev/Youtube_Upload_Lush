@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+### 2026-06-02 00:00 - Restore legacy live FFmpeg process loop
+- Changed: `workers/agent/live_runner.py` bỏ `-stream_loop -1` khỏi command đẩy RTMP live, quay lại mô hình app cũ: FFmpeg đẩy một vòng `rendered.flv`, rồi worker spawn lại ngay với retry delay `0` khi hết media hoặc gặp YouTube/RTMPS reset.
+- Removed: Nhánh thử nghiệm `WORKER_LIVE_RTMP_FIFO_ENABLED` bị xoá khỏi runtime/test để live worker chỉ còn một đường command legacy rõ ràng: `-re -f flv -i rendered.flv -c copy -f flv -flvflags no_duration_filesize ...`.
+- Affected files: `workers/agent/live_runner.py`, `tests/test_live_rtmp_retry.py`, `docs/modules/worker-control-plane.md`, `docs/DECISIONS_INDEX.md`, `docs/DECISIONS.md`, `docs/CHANGELOG.md`, `docs/WORKLOG.md`
+- Impact/Risk: Medium; live-worker-only rollout. Cần theo dõi live time-end có backup để xác nhận pattern reset quanh vòng media giảm so với command `-stream_loop -1`.
+
 ### 2026-05-31 14:20 - Legacy-style live FFmpeg retry classification
 - Changed: Live worker now treats every `FFmpeg live runtime failed (...)` raised from the RTMP push phase as retriable, matching the legacy app's behavior of immediately spawning FFmpeg again after any live FFmpeg exit.
 - Fixed: `24/7` primary streams with a backup now retry RTMP locally first; backup failover remains reserved for true worker/control telemetry loss beyond the failover threshold.

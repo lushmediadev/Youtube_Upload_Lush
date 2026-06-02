@@ -45,8 +45,8 @@
 - Profile stale, Google Sign in redirect, verification challenge co the lam nham la bug upload.
 - Runtime deploy drift giua local/GitHub/VPS tung xay ra; worker source can doi chieu production truoc khi sua cac bug kho.
 - Live incident can doi chieu local `worker-data/live-state/<stream_id>/current.json`, `events.log`, va `ffmpeg.log` tren worker truoc khi ket luan RTMP hay worker runtime hong.
-- Live RTMP command phai giu mot phien FFmpeg loop input bang `-stream_loop -1` thay vi Python restart FFmpeg sau moi vong media; neu YouTube bao ingest kem on dinh, kiem tra command thuc te trong `ffmpeg.log`.
-- Live RTMP co nhánh thử nghiệm opt-in `WORKER_LIVE_RTMP_FIFO_ENABLED=true`, dùng FFmpeg `fifo` muxer với recovery cho output network; mặc định tắt và chỉ bật theo từng worker/job test sau khi kiểm chứng thực tế.
+- Live RTMP command quay lai mo hinh app cu: FFmpeg day mot vong `rendered.flv` bang `-re -f flv -i rendered.flv -c copy -f flv -flvflags no_duration_filesize`, neu het media hoac YouTube/RTMPS reset thi local supervisor spawn lai FFmpeg ngay voi retry delay mac dinh `0`.
+- Live RTMP khong con nhánh FIFO opt-in; neu can thu recovery khac thi phai lam thanh thay doi code/test rieng, khong bat bang env tren production worker.
 - `worker-data/live-state/*` la log/state local dai hon runtime `live-streams/*`; janitor xoa theo `WORKER_LIVE_STATE_RETENTION_HOURS` (mac dinh 168h) de tranh phinh disk.
 
 ## Related Decisions

@@ -36,30 +36,9 @@ def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
     return max(minimum, parsed)
 
 
-def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
-    raw_value = str(os.getenv(name, str(default))).strip()
-    try:
-        parsed = int(raw_value)
-    except ValueError:
-        return default
-    return max(minimum, parsed)
-
-
-def _env_bool(name: str, default: bool = False) -> bool:
-    raw_value = str(os.getenv(name, "1" if default else "0")).strip().lower()
-    if raw_value in {"1", "true", "yes", "on"}:
-        return True
-    if raw_value in {"0", "false", "no", "off"}:
-        return False
-    return default
-
-
 LIVE_RUNTIME_GUARD_INTERVAL_SECONDS = _env_float("WORKER_LIVE_RUNTIME_GUARD_INTERVAL_SECONDS", 1.0, minimum=0.2)
 LIVE_FFMPEG_PROGRESS_INTERVAL_SECONDS = _env_float("WORKER_LIVE_FFMPEG_PROGRESS_INTERVAL_SECONDS", 0.5, minimum=0.2)
 LIVE_RTMP_RETRY_DELAY_SECONDS = _env_float("WORKER_LIVE_RTMP_RETRY_DELAY_SECONDS", 0.0, minimum=0.0)
-LIVE_RTMP_FIFO_ENABLED = _env_bool("WORKER_LIVE_RTMP_FIFO_ENABLED", False)
-LIVE_RTMP_FIFO_QUEUE_SIZE = _env_int("WORKER_LIVE_RTMP_FIFO_QUEUE_SIZE", 60, minimum=1)
-LIVE_RTMP_FIFO_RECOVERY_WAIT_SECONDS = _env_float("WORKER_LIVE_RTMP_FIFO_RECOVERY_WAIT_SECONDS", 1.0, minimum=0.0)
 LIVE_COPY_SUPPORTED_VIDEO_CODECS = {"h264"}
 LIVE_COPY_SUPPORTED_AUDIO_CODECS = {"aac", "mp3"}
 LIVE_NORMALIZE_TARGET_GOP_SECONDS = 2.0
@@ -948,44 +927,14 @@ def _stream_once(
 
 
 def _build_live_ffmpeg_arguments(*, rendered_path: Path, rtmp_target: str) -> list[str]:
-    base_arguments = [
+    return [
         "-re",
         "-f",
         "flv",
-        "-stream_loop",
-        "-1",
         "-i",
         str(rendered_path),
         "-c",
         "copy",
-    ]
-    if LIVE_RTMP_FIFO_ENABLED:
-        return [
-            *base_arguments,
-            "-map",
-            "0:v:0",
-            "-map",
-            "0:a:0",
-            "-f",
-            "fifo",
-            "-fifo_format",
-            "flv",
-            "-queue_size",
-            str(LIVE_RTMP_FIFO_QUEUE_SIZE),
-            "-drop_pkts_on_overflow",
-            "1",
-            "-attempt_recovery",
-            "1",
-            "-recover_any_error",
-            "1",
-            "-recovery_wait_time",
-            f"{LIVE_RTMP_FIFO_RECOVERY_WAIT_SECONDS:g}",
-            "-format_opts",
-            "flvflags=no_duration_filesize",
-            rtmp_target,
-        ]
-    return [
-        *base_arguments,
         "-f",
         "flv",
         "-flvflags",

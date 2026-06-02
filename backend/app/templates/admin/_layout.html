@@ -61,6 +61,14 @@
         border-bottom: 1px solid rgba(226, 232, 240, 0.75);
       }
 
+      .app-shell-content {
+        transition: opacity 120ms ease;
+      }
+
+      .admin-fast-nav-loading .app-shell-content {
+        opacity: 0.82;
+      }
+
       .toolbar-select,
       .toolbar-input {
         width: 100%;
@@ -1711,6 +1719,7 @@
     </script>
     <script defer src="{{ request.app.url_path_for('static', path='js/mobile_shell.js') }}"></script>
     <script defer src="{{ request.app.url_path_for('static', path='js/admin_tables.js') }}?v=20260514-no-blank-tables"></script>
+    <script defer src="{{ request.app.url_path_for('static', path='js/admin_navigation.js') }}?v=20260602-fast-admin-nav"></script>
     {% block page_scripts %}{% endblock %}
 </body>
 </html>

@@ -1719,7 +1719,7 @@
     </script>
     <script defer src="{{ request.app.url_path_for('static', path='js/mobile_shell.js') }}"></script>
     <script defer src="{{ request.app.url_path_for('static', path='js/admin_tables.js') }}?v=20260514-no-blank-tables"></script>
-    <script defer src="{{ request.app.url_path_for('static', path='js/admin_navigation.js') }}?v=20260602-fast-admin-nav"></script>
+    <script defer src="{{ request.app.url_path_for('static', path='js/admin_navigation.js') }}?v=20260602-safe-real-nav"></script>
     {% block page_scripts %}{% endblock %}
 </body>
 </html>

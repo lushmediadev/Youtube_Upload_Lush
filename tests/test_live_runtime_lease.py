@@ -411,6 +411,64 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
             )
         )
 
+    def test_forever_backup_streams_when_primary_rtmp_unhealthy_and_returns_to_standby(self) -> None:
+        primary = make_stream(
+            status="streaming",
+            lease_expires_at=datetime.now() + timedelta(minutes=5),
+            first_streaming_started_at=datetime(2026, 5, 11, 21, 0),
+        )
+        primary.backup_worker_id = "live-worker-backup"
+        primary.backup_worker_name = "62.146.169.230"
+        primary.backup_stream_id = "live-backup"
+        primary.rtmp_unhealthy_at = datetime.now() - timedelta(seconds=35)
+        primary.rtmp_unhealthy_reason = "FFmpeg no progress"
+        backup = make_stream(
+            status="waiting",
+            lease_expires_at=datetime.now() + timedelta(minutes=5),
+            first_streaming_started_at=None,
+        )
+        backup.id = "live-backup"
+        backup.primary_worker_id = "live-worker-backup"
+        backup.primary_worker_name = "62.146.169.230"
+        backup.runtime_role = "backup"
+        backup.is_runtime_clone = True
+        backup.parent_stream_id = primary.id
+        backup.claimed_by_worker_id = "live-worker-backup"
+        backup.claimed_by_role = "backup"
+        self.store.live_workers.append(make_live_worker("live-worker-backup"))
+        self.store.live_user_worker_links.append(
+            {"id": 2, "user_id": "user-1", "worker_id": "live-worker-backup", "threads": 1, "live_role": "backup"}
+        )
+        self.store.live_streams = [primary, backup]
+
+        backup_state = self.store.get_live_stream_runtime_state(
+            stream_id=backup.id,
+            worker_id="live-worker-backup",
+            shared_secret=self.store.get_worker_shared_secret(),
+        )
+
+        self.assertEqual(backup_state["playback_mode"], "stream")
+
+        self.store.update_live_stream_progress(
+            stream_id=primary.id,
+            worker_id="live-worker-01",
+            shared_secret=self.store.get_worker_shared_secret(),
+            status="streaming",
+            progress=0,
+            message="Primary FFmpeg recovered",
+            runtime_health="healthy",
+        )
+
+        backup_state = self.store.get_live_stream_runtime_state(
+            stream_id=backup.id,
+            worker_id="live-worker-backup",
+            shared_secret=self.store.get_worker_shared_secret(),
+        )
+
+        self.assertEqual(backup_state["playback_mode"], "standby")
+        self.assertIsNone(self.store.live_streams[0].rtmp_unhealthy_at)
+        self.assertIsNone(self.store.live_streams[0].rtmp_unhealthy_reason)
+
     def test_backup_clone_can_reclaim_after_disconnect(self) -> None:
         primary = make_stream(
             status="disconnected",

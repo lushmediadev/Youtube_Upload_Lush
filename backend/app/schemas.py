@@ -222,6 +222,8 @@ class LiveStreamRecord(BaseModel):
     first_streaming_started_at: datetime | None = None
     disconnected_at: datetime | None = None
     telemetry_stale_at: datetime | None = None
+    rtmp_unhealthy_at: datetime | None = None
+    rtmp_unhealthy_reason: str | None = None
     stop_requested_at: datetime | None = None
     ended_at: datetime | None = None
     created_at: datetime
@@ -513,6 +515,9 @@ class LiveWorkerProgressPayload(BaseModel):
     status: LiveStreamStatus
     progress: int = 0
     message: str | None = None
+    runtime_health: str | None = None
+    runtime_health_elapsed_seconds: float | None = None
+    runtime_health_message: str | None = None
 
 
 class LiveWorkerCompletePayload(BaseModel):

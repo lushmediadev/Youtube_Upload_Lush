@@ -702,7 +702,23 @@ def update_live_stream_progress(
     status: str,
     progress: int,
     message: str | None = None,
+    runtime_health: str | None = None,
+    runtime_health_elapsed_seconds: float | None = None,
+    runtime_health_message: str | None = None,
 ) -> None:
+    payload = {
+        "worker_id": config.worker_id,
+        "shared_secret": config.shared_secret,
+        "status": status,
+        "progress": progress,
+        "message": message,
+    }
+    if runtime_health:
+        payload["runtime_health"] = runtime_health
+    if runtime_health_elapsed_seconds is not None:
+        payload["runtime_health_elapsed_seconds"] = runtime_health_elapsed_seconds
+    if runtime_health_message:
+        payload["runtime_health_message"] = runtime_health_message
     _request_with_retry(
         client,
         config,
@@ -711,13 +727,7 @@ def update_live_stream_progress(
         operation=f"update_live_stream_progress:{stream_id}",
         retry_forever=False,
         max_attempts=config.progress_retry_attempts,
-        json={
-            "worker_id": config.worker_id,
-            "shared_secret": config.shared_secret,
-            "status": status,
-            "progress": progress,
-            "message": message,
-        },
+        json=payload,
     )
 
 

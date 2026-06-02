@@ -59,6 +59,7 @@
 | DEC-052 | Live worker la local supervisor co state/log rieng; heartbeat/lease miss ban dau chi danh dau `Mất telemetry`, khong ket luan runtime chet ngay | Active | live runtime + control-plane resilience | High |
 | DEC-053 | Neu primary `24/7` co backup va `Mất telemetry` keo dai qua `LIVE_TELEMETRY_FAILOVER_SECONDS` thi control-plane moi escalates sang failover backup va gui ops Telegram; default hien tai la 120s de backup vao som hon, con live co `EndTimeLive` khong dung telemetry failover de bo primary vi backup da chay song song | Active | live runtime + failover resilience | High |
 | DEC-054 | RTMP retry cua live worker uu tien reconnect gan nhu tuc thi sau FFmpeg reset; Telegram live chi nen bao start/end, khong bao disconnect/backup-activated cho cac retry transient | Active | live runtime + alert dedupe | High |
+| DEC-055 | Live `24/7` primary co backup phai bao health cua FFmpeg/RTMP ve control-plane; neu worker con song nhung FFmpeg khong co progress qua `LIVE_PRIMARY_HEALTH_FAILOVER_SECONDS` thi backup duoc stream, va khi primary co progress lai thi backup ve standby | Active | live runtime + hot-standby failover | High |
 
 ## Notes
 - `docs/DECISIONS.md` van giu full history va ly do chi tiet.

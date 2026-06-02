@@ -82,7 +82,7 @@ class LiveSupervisorTests(unittest.TestCase):
             with patch.object(
                 live_runner,
                 "update_live_stream_progress",
-                side_effect=lambda _client, _config, _stream_id, *, status, progress, message: sent.append((status, progress, message)),
+                side_effect=lambda _client, _config, _stream_id, *, status, progress, message, **_kwargs: sent.append((status, progress, message)),
             ):
                 reporter("streaming", 0, "Đang live", force=True)
                 reporter("streaming", 1, "Đang live")
@@ -91,6 +91,39 @@ class LiveSupervisorTests(unittest.TestCase):
             self.assertEqual(len(sent), 1)
             events = (Path(tmp) / "events.log").read_text(encoding="utf-8").splitlines()
             self.assertEqual(len(events), 1)
+
+    def test_progress_reporter_forwards_runtime_health_payload(self) -> None:
+        sent: list[dict[str, object]] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            supervisor = LiveSupervisor(
+                root=Path(tmp),
+                worker_id="live-worker-01",
+                stream_id="stream-1",
+            )
+            reporter = live_runner._make_progress_reporter(
+                httpx.Client(),
+                SimpleNamespace(worker_id="live-worker-01"),
+                "stream-1",
+                supervisor=supervisor,
+            )
+
+            def fake_update(_client, _config, _stream_id, **kwargs) -> None:
+                sent.append(kwargs)
+
+            with patch.object(live_runner, "update_live_stream_progress", side_effect=fake_update):
+                reporter(
+                    "streaming",
+                    0,
+                    "Primary RTMP loi keo dai",
+                    force=True,
+                    runtime_health="rtmp_unhealthy",
+                    runtime_health_elapsed_seconds=31.5,
+                    runtime_health_message="FFmpeg no progress",
+                )
+
+            self.assertEqual(sent[0]["runtime_health"], "rtmp_unhealthy")
+            self.assertEqual(sent[0]["runtime_health_elapsed_seconds"], 31.5)
+            self.assertEqual(sent[0]["runtime_health_message"], "FFmpeg no progress")
 
     def test_supervisor_log_caps_are_small_for_many_streams(self) -> None:
         self.assertLessEqual(DEFAULT_SUPERVISOR_LOG_MAX_BYTES, 1 * 1024 * 1024)

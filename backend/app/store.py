@@ -5788,6 +5788,14 @@ class AppStore:
             return 120
 
     @staticmethod
+    def _live_primary_health_failover_seconds() -> int:
+        raw_value = str(os.getenv("LIVE_PRIMARY_HEALTH_FAILOVER_SECONDS", "30")).strip()
+        try:
+            return max(5, int(raw_value))
+        except ValueError:
+            return 30
+
+    @staticmethod
     def _live_progress_save_interval_seconds() -> int:
         raw_value = str(os.getenv("LIVE_PROGRESS_SAVE_INTERVAL_SECONDS", "120")).strip()
         try:
@@ -5976,6 +5984,8 @@ class AppStore:
         stream.claimed_at = None
         stream.disconnected_at = None
         stream.telemetry_stale_at = None
+        stream.rtmp_unhealthy_at = None
+        stream.rtmp_unhealthy_reason = None
 
     @staticmethod
     def _live_stream_has_runtime_claim(stream: LiveStreamRecord) -> bool:
@@ -6038,11 +6048,27 @@ class AppStore:
         start_time_live = parent_stream.start_time_live
         if start_time_live is not None and now < start_time_live:
             return "standby"
+        if self._live_primary_rtmp_unhealthy_failover_ready(parent_stream, now=now):
+            return "stream"
         if parent_status == "streaming":
             return "standby"
         if parent_status == "waiting":
             return "standby"
         return "stream"
+
+    def _live_primary_rtmp_unhealthy_failover_ready(self, stream: LiveStreamRecord, *, now: datetime) -> bool:
+        if not self._is_visible_live_stream(stream):
+            return False
+        if not stream.is_forever or stream.end_time_live is not None:
+            return False
+        if not str(stream.backup_worker_id or "").strip():
+            return False
+        unhealthy_at = stream.rtmp_unhealthy_at
+        if unhealthy_at is None:
+            return False
+        if self._live_stream_has_reached_schedule_end(stream, now=now):
+            return False
+        return unhealthy_at + timedelta(seconds=self._live_primary_health_failover_seconds()) <= now
 
     def _is_live_stream_runtime_locked(self, stream: LiveStreamRecord) -> bool:
         effective_runtime = self._effective_live_runtime_stream(stream)
@@ -6998,7 +7024,10 @@ class AppStore:
         normalized_status: str,
         now: datetime,
         had_telemetry_stale: bool,
+        runtime_health_changed: bool = False,
     ) -> bool:
+        if runtime_health_changed:
+            return True
         if had_telemetry_stale:
             return True
         if previous_status != normalized_status:
@@ -7079,6 +7108,9 @@ class AppStore:
         status: str,
         progress: int,
         message: str | None = None,
+        runtime_health: str | None = None,
+        runtime_health_elapsed_seconds: float | None = None,
+        runtime_health_message: str | None = None,
     ) -> LiveStreamRecord:
         notification_chat_ids: list[str] = []
         notification_message = ""
@@ -7089,9 +7121,13 @@ class AppStore:
             now = self._now(trim=False)
             previous_status = str(stream.status or "").strip().lower() or "scheduled"
             had_telemetry_stale = stream.telemetry_stale_at is not None or self._live_stream_has_telemetry_stale_marker(stream)
+            previous_rtmp_unhealthy_at = stream.rtmp_unhealthy_at
+            previous_rtmp_unhealthy_reason = stream.rtmp_unhealthy_reason
 
             normalized_status = str(status or "").strip().lower() or "scheduled"
             bounded_progress = max(0, min(100, int(progress)))
+            normalized_runtime_health = str(runtime_health or "").strip().lower()
+            runtime_health_message = (runtime_health_message or message or "").strip() or None
             stream.claimed_by_worker_id = worker_id
             stream.claimed_by_role = stream.claimed_by_role or stream.runtime_role or "primary"
             stream.claimed_at = stream.claimed_at or now
@@ -7102,6 +7138,19 @@ class AppStore:
             stream.error_message = None
             stream.telemetry_stale_at = None
             stream.updated_at = now
+
+            if self._is_visible_live_stream(stream) and stream.is_forever and stream.end_time_live is None:
+                if normalized_runtime_health in {"rtmp_unhealthy", "unhealthy"}:
+                    if stream.rtmp_unhealthy_at is None:
+                        try:
+                            elapsed_seconds = max(0.0, float(runtime_health_elapsed_seconds or 0.0))
+                        except (TypeError, ValueError):
+                            elapsed_seconds = 0.0
+                        stream.rtmp_unhealthy_at = now - timedelta(seconds=elapsed_seconds)
+                    stream.rtmp_unhealthy_reason = runtime_health_message
+                elif normalized_runtime_health in {"healthy", "rtmp_healthy"}:
+                    stream.rtmp_unhealthy_at = None
+                    stream.rtmp_unhealthy_reason = None
 
             if normalized_status == "downloading" and stream.download_started_at is None:
                 stream.download_started_at = now
@@ -7126,6 +7175,9 @@ class AppStore:
                 stream.streaming_started_at = now if not was_streaming else (stream.streaming_started_at or now)
                 stream.is_live_now = True
                 stream.disconnected_at = None
+                if normalized_runtime_health in {"healthy", "rtmp_healthy"}:
+                    stream.rtmp_unhealthy_at = None
+                    stream.rtmp_unhealthy_reason = None
                 if not was_streaming:
                     notification_chat_ids = self._live_stream_recipient_chat_ids(stream)
                     if self._is_runtime_backup_clone(stream):
@@ -7148,6 +7200,10 @@ class AppStore:
                 normalized_status=normalized_status,
                 now=now,
                 had_telemetry_stale=had_telemetry_stale,
+                runtime_health_changed=(
+                    previous_rtmp_unhealthy_at != stream.rtmp_unhealthy_at
+                    or previous_rtmp_unhealthy_reason != stream.rtmp_unhealthy_reason
+                ),
             )
             if should_save_state:
                 self._save_state()

@@ -136,13 +136,6 @@
     return request;
   }
 
-  function replaceDocument(url, html) {
-    window.history.pushState({}, "", url.pathname + url.search + url.hash);
-    document.open();
-    document.write(html);
-    document.close();
-  }
-
   function warmLink(link) {
     if (!shouldHandleLink(link, null)) {
       return;
@@ -163,22 +156,8 @@
       return;
     }
 
-    event.preventDefault();
     document.documentElement.classList.add("admin-fast-nav-loading");
-
-    const html = cachedHtml(url);
-    if (html) {
-      replaceDocument(url, html);
-      return;
-    }
-
-    prefetchUrl(url)
-      .then(function (nextHtml) {
-        replaceDocument(url, nextHtml);
-      })
-      .catch(function () {
-        window.location.assign(url.toString());
-      });
+    prefetchUrl(url).catch(function () {});
   }
 
   function warmVisibleNavigation() {

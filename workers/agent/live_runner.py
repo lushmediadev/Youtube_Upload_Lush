@@ -302,7 +302,7 @@ def _make_progress_reporter(
             state["status"] = status
             state["progress"] = max(last_progress, bounded)
             state["message"] = cleaned_message
-            return
+            return True
 
         if supervisor is not None:
             supervisor.record_state(status, bounded, cleaned_message, event="progress")
@@ -330,10 +330,12 @@ def _make_progress_reporter(
                     error=str(exc),
                 )
             print(f"[live] progress report failed for {stream_id}: {exc}", flush=True)
+            return False
         state["status"] = status
         state["progress"] = max(last_progress, bounded)
         state["message"] = cleaned_message
         state["sent_at"] = now
+        return True
 
     return _report
 
@@ -712,18 +714,22 @@ def _run_ffmpeg_with_progress(
     if supervisor is not None:
         supervisor.record_event("ffmpeg_start", pid=process.pid, cwd=str(working_dir))
 
-    line_queue: Queue[str | None] = Queue()
+    line_queue: Queue[str | None] | None = None
 
-    def _read_stdout() -> None:
-        assert process.stdout is not None
-        try:
-            for stdout_line in process.stdout:
-                line_queue.put(stdout_line)
-        finally:
-            line_queue.put(None)
+    if progress_stall_callback:
+        line_queue = Queue()
 
-    reader_thread = Thread(target=_read_stdout, name=f"live-ffmpeg-reader-{process.pid}", daemon=True)
-    reader_thread.start()
+        def _read_stdout() -> None:
+            assert process.stdout is not None
+            assert line_queue is not None
+            try:
+                for stdout_line in process.stdout:
+                    line_queue.put(stdout_line)
+            finally:
+                line_queue.put(None)
+
+        reader_thread = Thread(target=_read_stdout, name=f"live-ffmpeg-reader-{process.pid}", daemon=True)
+        reader_thread.start()
 
     def _check_runtime(*, force: bool = False) -> bool:
         nonlocal callback_error, terminated_for_mode_change
@@ -749,25 +755,43 @@ def _run_ffmpeg_with_progress(
         progress_stall_seconds = max(1.0, float(progress_stall_seconds or 0.0)) if progress_stall_callback else None
         last_progress_at = time.monotonic()
         stall_reported = False
+        last_stall_callback_at = 0.0
         while True:
             if not _check_runtime():
                 break
             if end_time_live and _now_local() >= end_time_live and process.poll() is None:
                 terminated_for_end_time = True
                 _stop_process(process)
-            try:
-                raw_line = line_queue.get(timeout=0.2)
-            except Empty:
-                if process.poll() is not None and line_queue.empty():
-                    break
-                if not _check_runtime(force=True):
-                    break
-                if progress_stall_callback and progress_stall_seconds:
-                    stalled_for = time.monotonic() - last_progress_at
-                    if stalled_for >= progress_stall_seconds and not stall_reported:
-                        stall_reported = True
-                        progress_stall_callback(stalled_for)
-                continue
+            if line_queue is None:
+                assert process.stdout is not None
+                raw_line = process.stdout.readline()
+                if not raw_line:
+                    if process.poll() is not None:
+                        break
+                    if not _check_runtime(force=True):
+                        break
+                    time.sleep(0.1)
+                    continue
+            else:
+                try:
+                    raw_line = line_queue.get(timeout=0.2)
+                except Empty:
+                    if process.poll() is not None and line_queue.empty():
+                        break
+                    if not _check_runtime(force=True):
+                        break
+                    if progress_stall_callback and progress_stall_seconds:
+                        now_monotonic = time.monotonic()
+                        stalled_for = now_monotonic - last_progress_at
+                        if (
+                            stalled_for >= progress_stall_seconds
+                            and not stall_reported
+                            and now_monotonic - last_stall_callback_at >= 5.0
+                        ):
+                            last_stall_callback_at = now_monotonic
+                            callback_result = progress_stall_callback(stalled_for)
+                            stall_reported = callback_result is not False
+                    continue
             if raw_line is None:
                 if process.poll() is not None:
                     break
@@ -1163,16 +1187,21 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
         )
         rtmp_unhealthy_started_at: float | None = None
         rtmp_unhealthy_reported = False
+        rtmp_healthy_started_at: float | None = None
 
         def _mark_primary_rtmp_healthy() -> None:
-            nonlocal rtmp_unhealthy_started_at, rtmp_unhealthy_reported
+            nonlocal rtmp_unhealthy_started_at, rtmp_unhealthy_reported, rtmp_healthy_started_at
             if not should_report_primary_rtmp_health:
                 return
             if rtmp_unhealthy_started_at is None and not rtmp_unhealthy_reported:
                 return
-            rtmp_unhealthy_started_at = None
-            rtmp_unhealthy_reported = False
-            report_progress(
+            now_monotonic = time.monotonic()
+            if rtmp_healthy_started_at is None:
+                rtmp_healthy_started_at = now_monotonic
+            healthy_elapsed = now_monotonic - rtmp_healthy_started_at
+            if healthy_elapsed < config.live_primary_recovery_seconds:
+                return
+            sent_ok = report_progress(
                 "streaming",
                 0,
                 "Primary RTMP da co progress tro lai",
@@ -1180,11 +1209,16 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
                 runtime_health="healthy",
                 runtime_health_message="Primary FFmpeg da day RTMP tro lai.",
             )
+            if sent_ok:
+                rtmp_unhealthy_started_at = None
+                rtmp_unhealthy_reported = False
+                rtmp_healthy_started_at = None
 
         def _mark_primary_rtmp_unhealthy(reason: str, *, elapsed_seconds: float | None = None) -> None:
-            nonlocal rtmp_unhealthy_started_at, rtmp_unhealthy_reported
+            nonlocal rtmp_unhealthy_started_at, rtmp_unhealthy_reported, rtmp_healthy_started_at
             if not should_report_primary_rtmp_health:
-                return
+                return True
+            rtmp_healthy_started_at = None
             now_monotonic = time.monotonic()
             if rtmp_unhealthy_started_at is None:
                 if elapsed_seconds is not None:
@@ -1193,9 +1227,8 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
                     rtmp_unhealthy_started_at = now_monotonic
             unhealthy_elapsed = now_monotonic - rtmp_unhealthy_started_at
             if unhealthy_elapsed < config.live_primary_unhealthy_seconds or rtmp_unhealthy_reported:
-                return
-            rtmp_unhealthy_reported = True
-            report_progress(
+                return True
+            sent_ok = report_progress(
                 "streaming",
                 0,
                 "Primary RTMP loi keo dai, cho phep backup tiep quan.",
@@ -1204,12 +1237,15 @@ def run_live_stream(client: httpx.Client, config: WorkerConfig, stream: dict) ->
                 runtime_health_elapsed_seconds=unhealthy_elapsed,
                 runtime_health_message=reason,
             )
+            if sent_ok:
+                rtmp_unhealthy_reported = True
+            return sent_ok
 
         def _on_primary_stream_progress(_ratio: float, _current_seconds: float) -> None:
             _mark_primary_rtmp_healthy()
 
         def _on_primary_stream_stall(stalled_for: float) -> None:
-            _mark_primary_rtmp_unhealthy(
+            return _mark_primary_rtmp_unhealthy(
                 f"FFmpeg khong co out_time_ms progress trong {stalled_for:.1f}s.",
                 elapsed_seconds=stalled_for,
             )

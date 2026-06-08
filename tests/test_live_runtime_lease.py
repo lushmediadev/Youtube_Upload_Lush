@@ -143,6 +143,7 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.assertEqual(updated.status, "disconnected")
         self.assertEqual(updated.claimed_by_worker_id, "live-worker-01")
         self.assertEqual(updated.log_label, "Mất kết nối")
+        self.assertIsNotNone(updated.disconnected_at)
         refreshed_lease = self.store.live_streams[0].lease_expires_at
         self.assertIsNotNone(refreshed_lease)
         self.assertGreater(refreshed_lease, datetime.now() + timedelta(seconds=30))
@@ -468,6 +469,117 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.assertEqual(backup_state["playback_mode"], "standby")
         self.assertIsNone(self.store.live_streams[0].rtmp_unhealthy_at)
         self.assertIsNone(self.store.live_streams[0].rtmp_unhealthy_reason)
+
+    def test_forever_backup_stays_standby_for_transient_primary_retry_disconnect(self) -> None:
+        primary = make_stream(
+            status="disconnected",
+            lease_expires_at=datetime.now() + timedelta(minutes=5),
+            first_streaming_started_at=datetime(2026, 5, 11, 21, 0),
+        )
+        primary.backup_worker_id = "live-worker-backup"
+        primary.backup_worker_name = "62.146.169.230"
+        primary.backup_stream_id = "live-backup"
+        primary.disconnected_at = None
+        backup = make_stream(
+            status="waiting",
+            lease_expires_at=datetime.now() + timedelta(minutes=5),
+            first_streaming_started_at=None,
+        )
+        backup.id = "live-backup"
+        backup.primary_worker_id = "live-worker-backup"
+        backup.primary_worker_name = "62.146.169.230"
+        backup.runtime_role = "backup"
+        backup.is_runtime_clone = True
+        backup.parent_stream_id = primary.id
+        backup.claimed_by_worker_id = "live-worker-backup"
+        backup.claimed_by_role = "backup"
+        self.store.live_workers.append(make_live_worker("live-worker-backup"))
+        self.store.live_user_worker_links.append(
+            {"id": 2, "user_id": "user-1", "worker_id": "live-worker-backup", "threads": 1, "live_role": "backup"}
+        )
+        self.store.live_streams = [primary, backup]
+
+        backup_state = self.store.get_live_stream_runtime_state(
+            stream_id=backup.id,
+            worker_id="live-worker-backup",
+            shared_secret=self.store.get_worker_shared_secret(),
+        )
+
+        self.assertEqual(backup_state["playback_mode"], "standby")
+
+    def test_forever_backup_stays_standby_before_telemetry_disconnect_grace(self) -> None:
+        primary = make_stream(
+            status="disconnected",
+            lease_expires_at=datetime.now() + timedelta(minutes=5),
+            first_streaming_started_at=datetime(2026, 5, 11, 21, 0),
+        )
+        primary.backup_worker_id = "live-worker-backup"
+        primary.backup_worker_name = "62.146.169.230"
+        primary.backup_stream_id = "live-backup"
+        primary.disconnected_at = datetime.now() - timedelta(seconds=35)
+        backup = make_stream(
+            status="waiting",
+            lease_expires_at=datetime.now() + timedelta(minutes=5),
+            first_streaming_started_at=None,
+        )
+        backup.id = "live-backup"
+        backup.primary_worker_id = "live-worker-backup"
+        backup.primary_worker_name = "62.146.169.230"
+        backup.runtime_role = "backup"
+        backup.is_runtime_clone = True
+        backup.parent_stream_id = primary.id
+        backup.claimed_by_worker_id = "live-worker-backup"
+        backup.claimed_by_role = "backup"
+        self.store.live_workers.append(make_live_worker("live-worker-backup"))
+        self.store.live_user_worker_links.append(
+            {"id": 2, "user_id": "user-1", "worker_id": "live-worker-backup", "threads": 1, "live_role": "backup"}
+        )
+        self.store.live_streams = [primary, backup]
+
+        backup_state = self.store.get_live_stream_runtime_state(
+            stream_id=backup.id,
+            worker_id="live-worker-backup",
+            shared_secret=self.store.get_worker_shared_secret(),
+        )
+
+        self.assertEqual(backup_state["playback_mode"], "standby")
+
+    def test_forever_backup_streams_after_primary_telemetry_disconnect_grace(self) -> None:
+        primary = make_stream(
+            status="disconnected",
+            lease_expires_at=datetime.now() + timedelta(minutes=5),
+            first_streaming_started_at=datetime(2026, 5, 11, 21, 0),
+        )
+        primary.backup_worker_id = "live-worker-backup"
+        primary.backup_worker_name = "62.146.169.230"
+        primary.backup_stream_id = "live-backup"
+        primary.disconnected_at = datetime.now() - timedelta(seconds=125)
+        backup = make_stream(
+            status="waiting",
+            lease_expires_at=datetime.now() + timedelta(minutes=5),
+            first_streaming_started_at=None,
+        )
+        backup.id = "live-backup"
+        backup.primary_worker_id = "live-worker-backup"
+        backup.primary_worker_name = "62.146.169.230"
+        backup.runtime_role = "backup"
+        backup.is_runtime_clone = True
+        backup.parent_stream_id = primary.id
+        backup.claimed_by_worker_id = "live-worker-backup"
+        backup.claimed_by_role = "backup"
+        self.store.live_workers.append(make_live_worker("live-worker-backup"))
+        self.store.live_user_worker_links.append(
+            {"id": 2, "user_id": "user-1", "worker_id": "live-worker-backup", "threads": 1, "live_role": "backup"}
+        )
+        self.store.live_streams = [primary, backup]
+
+        backup_state = self.store.get_live_stream_runtime_state(
+            stream_id=backup.id,
+            worker_id="live-worker-backup",
+            shared_secret=self.store.get_worker_shared_secret(),
+        )
+
+        self.assertEqual(backup_state["playback_mode"], "stream")
 
     def test_backup_clone_can_reclaim_after_disconnect(self) -> None:
         primary = make_stream(

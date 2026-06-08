@@ -56,8 +56,9 @@ class LiveSupervisorTests(unittest.TestCase):
             )
 
             with patch.object(live_runner, "update_live_stream_progress", side_effect=RuntimeError("control-plane down")):
-                reporter("streaming", 33, "Đang live", force=True)
+                sent_ok = reporter("streaming", 33, "Đang live", force=True)
 
+            self.assertFalse(sent_ok)
             current = json.loads((Path(tmp) / "current.json").read_text(encoding="utf-8"))
             self.assertEqual(current["status"], "streaming")
             self.assertEqual(current["progress"], 33)
@@ -111,7 +112,7 @@ class LiveSupervisorTests(unittest.TestCase):
                 sent.append(kwargs)
 
             with patch.object(live_runner, "update_live_stream_progress", side_effect=fake_update):
-                reporter(
+                sent_ok = reporter(
                     "streaming",
                     0,
                     "Primary RTMP loi keo dai",
@@ -121,6 +122,7 @@ class LiveSupervisorTests(unittest.TestCase):
                     runtime_health_message="FFmpeg no progress",
                 )
 
+            self.assertTrue(sent_ok)
             self.assertEqual(sent[0]["runtime_health"], "rtmp_unhealthy")
             self.assertEqual(sent[0]["runtime_health_elapsed_seconds"], 31.5)
             self.assertEqual(sent[0]["runtime_health_message"], "FFmpeg no progress")

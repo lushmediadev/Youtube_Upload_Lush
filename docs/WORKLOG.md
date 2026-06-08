@@ -1,6 +1,7 @@
 ﻿# Worklog
 
 ### 2026-06-02
+- [x] Sửa guard failover cho live `24/7` có backup: `runtime_health` chỉ đi qua live progress route, upload progress không nhận field live-only; backup hot-standby chỉ stream sau khi primary RTMP unhealthy vượt 30 giây hoặc runtime disconnected thật sự vượt ngưỡng telemetry dài hơn, không còn bị kích hoạt bởi retry transient. Worker retry health signal nếu gửi fail và chỉ báo primary healthy sau khi progress ổn định ngắn.
 - [x] Quay lại pattern live push legacy sau khi đối chiếu app cũ và log reset theo vòng media: `_build_live_ffmpeg_arguments()` không còn thêm `-stream_loop -1`; FFmpeg đẩy một vòng `rendered.flv`, sau đó worker respawn gần như ngay lập tức khi hết media hoặc YouTube/RTMPS reset (`WORKER_LIVE_RTMP_RETRY_DELAY_SECONDS=0`). Timed live primary+backup vẫn chạy song song; `24/7` backup vẫn hot-standby/failover.
 - [x] Xoá hẳn nhánh thử nghiệm FIFO khỏi `live_runner.py` và test để production worker không còn đường bật `WORKER_LIVE_RTMP_FIFO_ENABLED`; nếu sau này muốn thử recovery khác thì phải làm bằng thay đổi code/test riêng.
 

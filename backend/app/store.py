@@ -6054,6 +6054,8 @@ class AppStore:
             return "standby"
         if parent_status == "waiting":
             return "standby"
+        if parent_status == "disconnected":
+            return "standby"
         return "stream"
 
     def _live_primary_rtmp_unhealthy_failover_ready(self, stream: LiveStreamRecord, *, now: datetime) -> bool:
@@ -6064,11 +6066,14 @@ class AppStore:
         if not str(stream.backup_worker_id or "").strip():
             return False
         unhealthy_at = stream.rtmp_unhealthy_at
-        if unhealthy_at is None:
-            return False
         if self._live_stream_has_reached_schedule_end(stream, now=now):
             return False
-        return unhealthy_at + timedelta(seconds=self._live_primary_health_failover_seconds()) <= now
+        health_failover_after = timedelta(seconds=self._live_primary_health_failover_seconds())
+        if unhealthy_at is not None and unhealthy_at + health_failover_after <= now:
+            return True
+        disconnected_at = stream.disconnected_at
+        telemetry_failover_after = timedelta(seconds=self._live_telemetry_failover_seconds())
+        return disconnected_at is not None and disconnected_at + telemetry_failover_after <= now
 
     def _is_live_stream_runtime_locked(self, stream: LiveStreamRecord) -> bool:
         effective_runtime = self._effective_live_runtime_stream(stream)
@@ -7185,6 +7190,10 @@ class AppStore:
                         notification_message = ""
                     elif self._is_visible_live_stream(stream) and first_streaming_transition:
                         notification_message = self._live_stream_started_message(stream, now=now)
+            elif normalized_status == "disconnected":
+                if self._is_visible_live_stream(stream) and stream.disconnected_at is None:
+                    stream.disconnected_at = now
+                stream.is_live_now = False
             else:
                 stream.is_live_now = normalized_status == "streaming"
 

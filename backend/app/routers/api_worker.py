@@ -163,9 +163,6 @@ async def update_worker_job_progress(job_id: str, payload: WorkerJobProgressPayl
             status=payload.status,
             progress=payload.progress,
             message=payload.message,
-            runtime_health=payload.runtime_health,
-            runtime_health_elapsed_seconds=payload.runtime_health_elapsed_seconds,
-            runtime_health_message=payload.runtime_health_message,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Không tìm thấy job.") from exc
@@ -214,6 +211,9 @@ async def update_live_stream_progress(stream_id: str, payload: LiveWorkerProgres
             status=payload.status,
             progress=payload.progress,
             message=payload.message,
+            runtime_health=payload.runtime_health,
+            runtime_health_elapsed_seconds=payload.runtime_health_elapsed_seconds,
+            runtime_health_message=payload.runtime_health_message,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Không tìm thấy luồng live.") from exc

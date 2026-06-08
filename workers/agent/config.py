@@ -74,6 +74,7 @@ class WorkerConfig:
     api_jitter_seconds: float = 3.0
     live_busy_claim_interval_seconds: float = 10.0
     live_primary_unhealthy_seconds: float = 30.0
+    live_primary_recovery_seconds: float = 10.0
 
 
 def load_config() -> WorkerConfig:
@@ -130,4 +131,5 @@ def load_config() -> WorkerConfig:
         api_jitter_seconds=max(0.0, float(os.getenv("WORKER_API_JITTER_SECONDS", "3"))),
         live_busy_claim_interval_seconds=max(5.0, float(os.getenv("WORKER_LIVE_BUSY_CLAIM_SECONDS", "10"))),
         live_primary_unhealthy_seconds=max(5.0, float(os.getenv("WORKER_LIVE_PRIMARY_UNHEALTHY_SECONDS", "30"))),
+        live_primary_recovery_seconds=max(1.0, float(os.getenv("WORKER_LIVE_PRIMARY_RECOVERY_SECONDS", "10"))),
     )

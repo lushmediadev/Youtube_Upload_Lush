@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+### 2026-06-02 00:30 - Guard 24/7 backup failover by primary RTMP health
+- Fixed: `runtime_health` is now accepted only by the live progress route; upload job progress no longer receives live-only health fields.
+- Fixed: Hot-standby `24/7` backup no longer starts just because primary briefly reports `disconnected` during local RTMP retry. RTMP health failover stays at 30 seconds, while `disconnected` fallback uses the longer telemetry failover window.
+- Fixed: Worker health signals are retried if a progress call fails, and primary recovery now requires a short stable-progress debounce before backup returns to standby.
+- Added: Regression coverage for transient primary retry disconnect, telemetry disconnect fallback, and live health payload delivery.
+- Affected files: `backend/app/routers/api_worker.py`, `backend/app/store.py`, `workers/agent/config.py`, `workers/agent/control_plane.py`, `workers/agent/live_runner.py`, `tests/test_live_runtime_lease.py`, `tests/test_live_supervisor.py`
+- Impact/Risk: Medium; control-plane + live-worker behavior. Local tests passed, but this has not been rolled out to VPS by request.
+
 ### 2026-06-02 00:00 - Restore legacy live FFmpeg process loop
 - Changed: `workers/agent/live_runner.py` bỏ `-stream_loop -1` khỏi command đẩy RTMP live, quay lại mô hình app cũ: FFmpeg đẩy một vòng `rendered.flv`, rồi worker spawn lại ngay với retry delay `0` khi hết media hoặc gặp YouTube/RTMPS reset.
 - Removed: Nhánh thử nghiệm `WORKER_LIVE_RTMP_FIFO_ENABLED` bị xoá khỏi runtime/test để live worker chỉ còn một đường command legacy rõ ràng: `-re -f flv -i rendered.flv -c copy -f flv -flvflags no_duration_filesize ...`.

@@ -1931,6 +1931,16 @@ class AppStore:
             normalized_ip = str(vps_ip or "").strip()
             if not normalized_ip:
                 raise ValueError("BOT này chưa có VPS IP để gỡ worker từ xa.")
+            self.worker_operation_tasks = [
+                task
+                for task in self.worker_operation_tasks
+                if not (
+                    str(task.get("kind") or "").strip() == "decommission"
+                    and str(task.get("status") or "").strip() == "failed"
+                    and self._normalize_workspace_mode(task.get("workspace_mode")) == resolved_workspace_mode
+                    and str(task.get("worker_id") or "").strip() == normalized_worker_id
+                )
+            ]
             for task in self.worker_operation_tasks:
                 if self._worker_operation_is_finished(task):
                     continue

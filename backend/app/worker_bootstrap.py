@@ -382,6 +382,29 @@ def _remote_command_error_message(command: str, stdout_text: str, stderr_text: s
     return f"Remote command failed: {command}"
 
 
+def _is_decommission_transport_failure(exc: Exception, *, vps_ip: str) -> bool:
+    message = str(exc or "").strip()
+    if isinstance(exc, WorkerBootstrapError) and message.startswith(f"Không kết nối được VPS {vps_ip}:"):
+        return True
+    if isinstance(exc, (ConnectionError, TimeoutError, OSError, EOFError)):
+        return True
+    if paramiko is not None and isinstance(exc, paramiko.SSHException):
+        return True
+    normalized = message.lower()
+    return any(
+        marker in normalized
+        for marker in (
+            "connection reset",
+            "connection refused",
+            "connection aborted",
+            "connection closed",
+            "no route to host",
+            "timed out",
+            "socket is closed",
+        )
+    )
+
+
 def _run_remote_command(
     client,
     command: str,
@@ -786,10 +809,6 @@ def _run_worker_decommission_operation(
     worker_id: str,
     request: WorkerDecommissionRequest,
 ) -> None:
-    def should_delete_local_record_after_failure(exc: Exception) -> bool:
-        message = str(exc or "").strip()
-        return message.startswith(f"Không kết nối được VPS {request.vps_ip}:")
-
     try:
         def report(message: str) -> None:
             store.update_worker_operation(operation_id, status="running", message=message)
@@ -797,8 +816,8 @@ def _run_worker_decommission_operation(
         report(f"Đang kết nối SSH tới {request.vps_ip} và chuẩn bị gỡ BOT...")
         decommission_worker_via_ssh(request, progress=report)
         store.finalize_decommissioned_bot(worker_id, operation_id)
-    except WorkerBootstrapError as exc:
-        if should_delete_local_record_after_failure(exc):
+    except Exception as exc:
+        if _is_decommission_transport_failure(exc, vps_ip=request.vps_ip):
             logger.warning(
                 "worker_decommission_unreachable_local_delete operation_id=%s worker_id=%s vps_ip=%s error=%s",
                 str(operation_id or "").strip(),
@@ -816,14 +835,6 @@ def _run_worker_decommission_operation(
             )
             store.finalize_decommissioned_bot(worker_id, operation_id, reason_override="ssh_unreachable")
             return
-        logger.exception(
-            "worker_decommission_operation_failed operation_id=%s worker_id=%s vps_ip=%s",
-            str(operation_id or "").strip(),
-            str(worker_id or "").strip(),
-            str(request.vps_ip or "").strip(),
-        )
-        store.fail_worker_operation(operation_id, message=str(exc))
-    except Exception as exc:
         logger.exception(
             "worker_decommission_operation_failed operation_id=%s worker_id=%s vps_ip=%s",
             str(operation_id or "").strip(),

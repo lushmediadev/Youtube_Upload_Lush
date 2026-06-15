@@ -185,6 +185,70 @@ class BotLocalTests(unittest.TestCase):
         self.assertNotIn("worker-eu", self.store.worker_connection_profiles)
         self.assertEqual(self.store.deleted_workers["worker-eu"]["reason"], "ssh_unreachable")
 
+    def test_decommission_operation_deletes_local_record_when_connection_resets(self) -> None:
+        self.store.worker_operation_tasks = [
+            {
+                "id": "worker-op-delete",
+                "worker_id": "worker-eu",
+                "worker_name": "109.123.233.131",
+                "vps_ip": "109.123.233.131",
+                "workspace_mode": "upload",
+                "kind": "decommission",
+                "transport": "ssh",
+                "status": "running",
+                "requested_by": "admin",
+                "requested_role": "admin",
+                "manager_name": "system",
+            }
+        ]
+        self.store.worker_connection_profiles = {
+            "worker-eu": {"vps_ip": "109.123.233.131", "ssh_user": "root", "password": "old-pass"}
+        }
+        request = WorkerDecommissionRequest(vps_ip="109.123.233.131", ssh_user="root", password="old-pass")
+
+        with patch(
+            "backend.app.worker_bootstrap.decommission_worker_via_ssh",
+            side_effect=ConnectionResetError(104, "Connection reset by peer"),
+        ):
+            _run_worker_decommission_operation(self.store, "worker-op-delete", "worker-eu", request)
+
+        self.assertEqual(self.store.workers, [])
+        self.assertEqual(self.store.worker_operation_tasks, [])
+        self.assertNotIn("worker-eu", self.store.worker_connection_profiles)
+        self.assertEqual(self.store.deleted_workers["worker-eu"]["reason"], "ssh_unreachable")
+
+    def test_failed_decommission_can_be_retried_for_same_worker(self) -> None:
+        self.store.worker_operation_tasks = [
+            {
+                "id": "worker-op-old",
+                "worker_id": "worker-eu",
+                "worker_name": "109.123.233.131",
+                "vps_ip": "109.123.233.131",
+                "workspace_mode": "upload",
+                "kind": "decommission",
+                "transport": "ssh",
+                "status": "failed",
+                "message": "[Errno 104] Connection reset by peer",
+                "requested_by": "admin",
+                "requested_role": "admin",
+                "manager_name": "system",
+            }
+        ]
+
+        retry_task = self.store.enqueue_worker_decommission_operation(
+            worker_id="worker-eu",
+            vps_ip="109.123.233.131",
+            ssh_user="root",
+            workspace_mode="upload",
+            requested_by="admin",
+            requested_role="admin",
+        )
+
+        self.assertEqual(len(self.store.worker_operation_tasks), 1)
+        self.assertEqual(self.store.worker_operation_tasks[0]["id"], retry_task["id"])
+        self.assertEqual(self.store.worker_operation_tasks[0]["status"], "queued")
+        self.assertNotEqual(retry_task["id"], "worker-op-old")
+
     def test_decommission_request_uses_saved_ssh_private_key_profile(self) -> None:
         self.store.worker_connection_profiles = {
             "worker-eu": {

@@ -94,6 +94,8 @@ def make_stream(
     primary_worker_id: str,
     backup_worker_id: str | None,
     created_at: datetime,
+    *,
+    status: str = "ended",
 ) -> LiveStreamRecord:
     return LiveStreamRecord(
         id=stream_id,
@@ -109,7 +111,7 @@ def make_stream(
         stream_name=stream_id,
         stream_key="stream-key",
         video_url="https://example.com/video.mp4",
-        status="ended",
+        status=status,
         created_at=created_at,
         updated_at=created_at,
     )
@@ -196,6 +198,79 @@ class InactiveBotAlertTests(unittest.TestCase):
                 ("live-backup-old", "live_backup"),
             },
         )
+
+    def test_inactive_alert_ignores_deleted_worker_records(self) -> None:
+        old = self.now - timedelta(days=20)
+        self.store.workers = [
+            make_worker("worker-deleted-id", "manager-1", "manager-alpha", old),
+            make_worker("worker-deleted-ip", "manager-1", "manager-alpha", old).model_copy(
+                update={"name": "158.220.91.85"}
+            ),
+            make_worker("worker-active-old", "manager-1", "manager-alpha", old),
+        ]
+        self.store.user_worker_links = [
+            {"id": 1, "user_id": "user-1", "worker_id": "worker-deleted-id", "created_at": old},
+            {"id": 2, "user_id": "user-1", "worker_id": "worker-deleted-ip", "created_at": old},
+            {"id": 3, "user_id": "user-1", "worker_id": "worker-active-old", "created_at": old},
+        ]
+        self.store.deleted_workers = {
+            "worker-deleted-id": {
+                "worker_id": "worker-deleted-id",
+                "worker_name": "46.250.243.199",
+                "vps_ip": "46.250.243.199",
+            },
+            "deleted-by-ip": {
+                "worker_id": "old-worker",
+                "worker_name": "158.220.91.85",
+                "vps_ip": "158.220.91.85",
+            },
+        }
+
+        inactive = self.store.get_inactive_bot_allocations(now=self.now, days=10)
+
+        self.assertEqual(
+            [(item["worker_id"], item["worker_name"]) for item in inactive],
+            [("worker-active-old", "worker-active-old")],
+        )
+
+    def test_live_allocations_with_active_primary_or_backup_streams_are_not_inactive(self) -> None:
+        old = self.now - timedelta(days=30)
+        stale_job = self.now - timedelta(days=20)
+        self.store._now = lambda trim=True: self.now
+        self.store.live_workers = [
+            make_worker("live-primary-active", "manager-1", "manager-alpha", old),
+            make_worker("live-backup-waiting", "manager-1", "manager-alpha", old),
+            make_worker("live-primary-ended", "manager-1", "manager-alpha", old),
+        ]
+        self.store.live_user_worker_links = [
+            {"id": 1, "user_id": "user-1", "worker_id": "live-primary-active", "live_role": "primary", "created_at": old},
+            {"id": 2, "user_id": "user-1", "worker_id": "live-backup-waiting", "live_role": "backup", "created_at": old},
+            {"id": 3, "user_id": "user-1", "worker_id": "live-primary-ended", "live_role": "primary", "created_at": old},
+        ]
+        self.store.live_streams = [
+            make_stream(
+                "stream-primary-active",
+                "user-1",
+                "live-primary-active",
+                "live-backup-waiting",
+                stale_job,
+                status="streaming",
+            ),
+            make_stream("stream-primary-ended", "user-1", "live-primary-ended", None, stale_job),
+        ]
+
+        inactive = self.store.get_inactive_bot_allocations(now=self.now, days=10)
+
+        self.assertEqual(
+            {(item["worker_id"], item["bot_type"]) for item in inactive},
+            {("live-primary-ended", "live_primary")},
+        )
+
+        rows = self.store._build_bot_rows(workspace_mode="live")
+        by_id = {row["id"]: row for row in rows}
+        self.assertEqual(by_id["live-primary-active"]["inactive_users"], [])
+        self.assertEqual(by_id["live-backup-waiting"]["inactive_users"], [])
+        self.assertEqual(by_id["live-primary-ended"]["inactive_users"], [{"username": "demo-user", "days": 20}])
 
     def test_bot_rows_only_show_users_inactive_over_threshold(self) -> None:
         old = self.now - timedelta(days=20)

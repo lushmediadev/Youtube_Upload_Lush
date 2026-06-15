@@ -3203,6 +3203,23 @@ class AppStore:
             if alias
         }
 
+    def _deleted_worker_aliases(self) -> set[str]:
+        aliases: set[str] = set()
+        for worker_id, payload in self.deleted_workers.items():
+            if str(worker_id or "").strip():
+                aliases.add(str(worker_id or "").strip())
+            if not isinstance(payload, dict):
+                continue
+            for key in ("worker_id", "worker_name", "vps_ip"):
+                value = str(payload.get(key) or "").strip()
+                if value:
+                    aliases.add(value)
+        return aliases
+
+    def _worker_is_deleted(self, worker: WorkerRecord, *, deleted_aliases: set[str] | None = None) -> bool:
+        aliases = deleted_aliases if deleted_aliases is not None else self._deleted_worker_aliases()
+        return bool(self._worker_aliases(worker) & aliases)
+
     def _safe_parse_datetime(self, value: Any) -> datetime | None:
         try:
             return self._parse_datetime(value)
@@ -3253,6 +3270,44 @@ class AppStore:
                 continue
             created_values.append(stream.created_at)
         return max(created_values, default=None)
+
+    @classmethod
+    def _live_stream_counts_as_active_for_inactivity(cls, stream: LiveStreamRecord) -> bool:
+        status = str(stream.status or "").strip().lower() or "scheduled"
+        return status in cls._live_worker_scheduled_statuses()
+
+    def _live_assignment_has_active_stream(
+        self,
+        *,
+        user_id: str,
+        worker_id: str,
+        live_role: str,
+    ) -> bool:
+        normalized_worker_id = str(worker_id or "").strip()
+        normalized_role = self._normalize_live_assignment_role(live_role)
+        if not str(user_id or "").strip() or not normalized_worker_id:
+            return False
+        for stream in self.live_streams:
+            if str(stream.owner_user_id or "").strip() != str(user_id or "").strip():
+                continue
+            if not self._live_stream_counts_as_active_for_inactivity(stream):
+                continue
+            if normalized_role == "backup":
+                if self._is_runtime_backup_clone(stream):
+                    if (
+                        self._live_runtime_role(stream) == "backup"
+                        and str(stream.primary_worker_id or "").strip() == normalized_worker_id
+                    ):
+                        return True
+                    continue
+                if str(stream.backup_worker_id or "").strip() == normalized_worker_id:
+                    return True
+                continue
+            if self._is_runtime_backup_clone(stream):
+                continue
+            if str(stream.primary_worker_id or "").strip() == normalized_worker_id:
+                return True
+        return False
 
     def _inactive_bot_manager_scope(self, worker: WorkerRecord, user: UserSummary) -> tuple[str | None, str]:
         manager_name = str(worker.manager_name or "").strip()
@@ -3377,6 +3432,12 @@ class AppStore:
                 if str(link.get("worker_id") or "").strip() != worker.id or user_id not in assigned_user_by_id:
                     continue
                 live_role = self._normalize_live_assignment_role(link.get("live_role"), fallback_note=link.get("note"))
+                if self._live_assignment_has_active_stream(
+                    user_id=user_id,
+                    worker_id=worker.id,
+                    live_role=live_role,
+                ):
+                    continue
                 assignment_created_at = self._assignment_created_at(link, worker)
                 last_job_created_at = context["live"].get((user_id, worker.id, live_role))
                 activity_at = max(
@@ -3456,7 +3517,10 @@ class AppStore:
     def _build_inactive_bot_table_snapshot(self, *, now: datetime) -> dict[str, dict[str, Any]]:
         context = self._bot_row_inactivity_context()
         snapshot: dict[str, dict[str, Any]] = {}
+        deleted_aliases = self._deleted_worker_aliases()
         for worker in self.workers:
+            if self._worker_is_deleted(worker, deleted_aliases=deleted_aliases):
+                continue
             assigned_users = self._assigned_users_for_worker(worker.id)
             snapshot[self._bot_row_inactivity_snapshot_key("upload", worker.id)] = self._bot_row_inactivity_summary(
                 worker=worker,
@@ -3466,6 +3530,8 @@ class AppStore:
                 activity_context=context,
             )
         for worker in self.live_workers:
+            if self._worker_is_deleted(worker, deleted_aliases=deleted_aliases):
+                continue
             assigned_users = self._assigned_live_users_for_worker(worker.id)
             snapshot[self._bot_row_inactivity_snapshot_key("live", worker.id)] = self._bot_row_inactivity_summary(
                 worker=worker,
@@ -3519,6 +3585,7 @@ class AppStore:
         threshold_days = max(1, int(days if days is not None else self._inactive_bot_alert_days()))
         cutoff = normalized_now - timedelta(days=threshold_days)
         inactive_records: list[dict[str, Any]] = []
+        deleted_aliases = self._deleted_worker_aliases()
 
         for link in self.user_worker_links:
             user_id = str(link.get("user_id") or "").strip()
@@ -3529,6 +3596,8 @@ class AppStore:
                 user = self._find_user(user_id)
                 worker = self._find_worker(worker_id)
             except KeyError:
+                continue
+            if self._worker_is_deleted(worker, deleted_aliases=deleted_aliases):
                 continue
             assignment_created_at = self._assignment_created_at(link, worker)
             last_job_created_at = self._upload_assignment_last_job_created_at(user_id=user.id, worker=worker)
@@ -3561,7 +3630,15 @@ class AppStore:
                 worker = self._find_live_worker(worker_id)
             except KeyError:
                 continue
+            if self._worker_is_deleted(worker, deleted_aliases=deleted_aliases):
+                continue
             live_role = self._normalize_live_assignment_role(link.get("live_role"), fallback_note=link.get("note"))
+            if self._live_assignment_has_active_stream(
+                user_id=user.id,
+                worker_id=worker.id,
+                live_role=live_role,
+            ):
+                continue
             assignment_created_at = self._assignment_created_at(link, worker)
             last_job_created_at = self._live_assignment_last_stream_created_at(
                 user_id=user.id,

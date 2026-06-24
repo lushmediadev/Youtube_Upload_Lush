@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+### 2026-06-24 - Smooth shell navigation and polling redraws
+- Changed: Admin/user shell navigation now prefetches internal documents and updates active nav/tab state immediately, without fading the current page while the browser navigates.
+- Changed: Sidebar icons are server-rendered and backed by local SVG runtimes so tab switches no longer wait for CDN Lucide hydration or redraw the icon set.
+- Changed: User render table, live-monitoring table, and admin BOT polling now reconcile existing rows instead of replacing the whole table on each poll.
+- Added: Regression coverage for instant icons, navigation prefetch, and keyed polling redraw behavior.
+- Affected files: `backend/app/static/js/admin_navigation.js`, `backend/app/static/js/user_dashboard.js`, `backend/app/templates/admin/_layout.html`, `backend/app/templates/admin/worker_index.html`, `backend/app/templates/user_dashboard.html`, `backend/app/templates/user_live_dashboard.html`, `backend/app/templates/_shell_icon.html`, `tests/test_navigation_performance.py`
+- Impact/Risk: Low-medium; frontend responsiveness change only. Destructive actions and confirmation modals remain backend-confirmed.
+
 ### 2026-06-02 00:30 - Guard 24/7 backup failover by primary RTMP health
 - Fixed: `runtime_health` is now accepted only by the live progress route; upload job progress no longer receives live-only health fields.
 - Fixed: Hot-standby `24/7` backup no longer starts just because primary briefly reports `disconnected` during local RTMP retry. RTMP health failover stays at 30 seconds, while `disconnected` fallback uses the longer telemetry failover window.

@@ -1,3 +1,4 @@
+{% from "_shell_icon.html" import shell_icon %}
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -37,7 +38,8 @@
   
   <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/vn.js"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>window.__lucideStrokeWidth = "2";</script>
+  <script src="{{ request.app.url_path_for('static', path='vendor/lucide-app.min.js') }}?v=20260624-instant-icons"></script>
   <style>
     .datetime-field {
       position: relative;
@@ -961,7 +963,7 @@
       {% endif %}
         {% for item in dashboard.nav_items %}
         <a href="{{ item.href | e }}" class="nav-item {% if dashboard.active_page == item.key %}active{% endif %}{% if not dashboard.admin_shell %} flex items-center gap-3{% endif %}">
-          <i data-lucide="{{ item.icon | e }}" class="{% if dashboard.admin_shell %}h-4 w-4{% else %}w-4 h-4{% endif %}"></i>
+          {{ shell_icon(item.icon, 'h-4 w-4 shrink-0', '2') }}
           <span class="text-[13px] {% if dashboard.active_page == item.key %}font-semibold{% else %}font-medium{% endif %}">{{ item.label | e }}</span>
         </a>
         {% endfor %}
@@ -1773,7 +1775,7 @@
   <script id="dashboard-seed" type="application/json">{{ dashboard | tojson }}</script>
 
 <script defer src="{{ request.app.url_path_for('static', path='js/mobile_shell.js') }}"></script>
-<script defer src="{{ request.app.url_path_for('static', path='js/admin_navigation.js') }}?v=20260602-safe-real-nav"></script>
+<script defer src="{{ request.app.url_path_for('static', path='js/admin_navigation.js') }}?v=20260624-document-prefetch"></script>
 <script src="/static/js/user_dashboard.js?v=20260514-adaptive-polling"></script>
   </body>
 </html>

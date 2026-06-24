@@ -1,9 +1,5 @@
 (function () {
-  const PREFETCH_TTL_MS = 20000;
-  const MAX_CACHE_ENTRIES = 8;
-  const FETCH_TIMEOUT_MS = 2200;
-  const cache = new Map();
-  const inFlight = new Map();
+  const prefetched = new Set();
 
   function isPlainLeftClick(event) {
     return (
@@ -19,7 +15,7 @@
     let url;
     try {
       url = new URL(rawHref, window.location.href);
-    } catch (error) {
+    } catch (_error) {
       return null;
     }
     if (url.origin !== window.location.origin) {
@@ -61,89 +57,62 @@
     return url.pathname + url.search;
   }
 
-  function trimCache() {
-    while (cache.size > MAX_CACHE_ENTRIES) {
-      const firstKey = cache.keys().next().value;
-      cache.delete(firstKey);
-    }
-  }
-
-  function cachedHtml(url) {
+  function prefetchUrl(url, highPriority) {
     const key = cacheKey(url);
-    const entry = cache.get(key);
-    if (!entry) {
-      return "";
+    if (prefetched.has(key)) {
+      return;
     }
-    if (Date.now() - entry.createdAt > PREFETCH_TTL_MS) {
-      cache.delete(key);
-      return "";
+    prefetched.add(key);
+
+    const link = document.createElement("link");
+    link.rel = "prefetch";
+    link.as = "document";
+    link.href = url.toString();
+    if ("fetchPriority" in link) {
+      link.fetchPriority = highPriority ? "high" : "low";
     }
-    cache.delete(key);
-    cache.set(key, entry);
-    return entry.html;
+    link.dataset.appNavigationPrefetch = key;
+    document.head.appendChild(link);
   }
 
-  function fetchWithTimeout(url) {
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(function () {
-      controller.abort();
-    }, FETCH_TIMEOUT_MS);
-
-    return fetch(url.toString(), {
-      method: "GET",
-      credentials: "same-origin",
-      headers: {
-        Accept: "text/html,application/xhtml+xml",
-        "X-Requested-With": "XMLHttpRequest",
-        "X-Admin-Prefetch": "1",
-      },
-      cache: "force-cache",
-      signal: controller.signal,
-    })
-      .then(function (response) {
-        if (!response.ok) {
-          throw new Error("Internal page prefetch failed.");
-        }
-        return response.text();
-      })
-      .finally(function () {
-        window.clearTimeout(timeoutId);
-      });
-  }
-
-  function prefetchUrl(url) {
-    const key = cacheKey(url);
-    const cached = cachedHtml(url);
-    if (cached) {
-      return Promise.resolve(cached);
-    }
-    if (inFlight.has(key)) {
-      return inFlight.get(key);
-    }
-    const request = fetchWithTimeout(url)
-      .then(function (html) {
-        if (!/<main[\s>]/i.test(html) || !html.includes("app-shell-content")) {
-          throw new Error("Prefetched response is not an admin page.");
-        }
-        cache.set(key, { html: html, createdAt: Date.now() });
-        trimCache();
-        return html;
-      })
-      .finally(function () {
-        inFlight.delete(key);
-      });
-    inFlight.set(key, request);
-    return request;
-  }
-
-  function warmLink(link) {
+  function warmLink(link, highPriority) {
     if (!shouldHandleLink(link, null)) {
       return;
     }
     const url = normalizeInternalUrl(link.href);
     if (url) {
-      prefetchUrl(url).catch(function () {});
+      prefetchUrl(url, highPriority);
     }
+  }
+
+  function setPendingNavigationState(link) {
+    if (link.matches(".module-tab")) {
+      const tabList = link.parentElement;
+      if (tabList) {
+        Array.from(tabList.querySelectorAll(":scope > a.module-tab[href]")).forEach(function (item) {
+          const active = item === link;
+          item.classList.toggle("active", active);
+          if (active) {
+            item.setAttribute("aria-current", "page");
+          } else {
+            item.removeAttribute("aria-current");
+          }
+        });
+      }
+      return;
+    }
+
+    const nav = link.closest("nav, .mobile-shell-nav");
+    const items = nav ? Array.from(nav.querySelectorAll("a.nav-item[href]")) : [];
+    items.forEach(function (item) {
+      const active = item === link;
+      item.classList.toggle("active", active);
+      if (active) {
+        item.setAttribute("aria-current", "page");
+      } else {
+        item.removeAttribute("aria-current");
+      }
+    });
   }
 
   function handleClick(event) {
@@ -156,31 +125,46 @@
       return;
     }
 
-    document.documentElement.classList.add("admin-fast-nav-loading");
-    prefetchUrl(url).catch(function () {});
+    setPendingNavigationState(link);
+    prefetchUrl(url, true);
   }
 
   function warmVisibleNavigation() {
     const links = Array.from(document.querySelectorAll("a.nav-item[href], .module-tab[href]"));
     let index = 0;
+
     function runNext() {
       if (index >= links.length) {
         return;
       }
-      warmLink(links[index]);
+      warmLink(links[index], false);
       index += 1;
-      window.setTimeout(runNext, 220);
+      window.setTimeout(runNext, 160);
     }
+
     runNext();
   }
 
   document.addEventListener("click", handleClick);
   document.addEventListener(
+    "pointerdown",
+    function (event) {
+      if (!isPlainLeftClick(event)) {
+        return;
+      }
+      const link = event.target.closest && event.target.closest("a[href]");
+      if (link) {
+        warmLink(link, true);
+      }
+    },
+    true
+  );
+  document.addEventListener(
     "pointerenter",
     function (event) {
       const link = event.target.closest && event.target.closest("a[href]");
       if (link) {
-        warmLink(link);
+        warmLink(link, true);
       }
     },
     true
@@ -190,15 +174,15 @@
     function (event) {
       const link = event.target.closest && event.target.closest("a[href]");
       if (link) {
-        warmLink(link);
+        warmLink(link, true);
       }
     },
     true
   );
 
   if ("requestIdleCallback" in window) {
-    window.requestIdleCallback(warmVisibleNavigation, { timeout: 1800 });
+    window.requestIdleCallback(warmVisibleNavigation, { timeout: 900 });
   } else {
-    window.setTimeout(warmVisibleNavigation, 700);
+    window.setTimeout(warmVisibleNavigation, 350);
   }
 })();

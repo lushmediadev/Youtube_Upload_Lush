@@ -20,6 +20,7 @@
   let liveRefreshSequence = 0;
   let liveRefreshAppliedSequence = 0;
   let lastLivePayloadSignature = "";
+  const renderedJobSignatures = new Map();
   const LIVE_REFRESH_INTERVAL_IDLE_MS = 10000;
   const LIVE_REFRESH_INTERVAL_ACTIVE_MS = 2000;
   const LIVE_REFRESH_INTERVAL_HIDDEN_MS = 30000;
@@ -188,7 +189,7 @@
     initChannelActions();
     applyConnectedChannelSearchFilter();
     if (typeof window.syncStudioAccessButton === "function") window.syncStudioAccessButton();
-    if (window.lucide) window.lucide.createIcons();
+    if (window.hydrateLucideIcons) window.hydrateLucideIcons(connectedChannelList);
   };
 
   const clampRenderPage = (page, totalPages) => {
@@ -288,9 +289,7 @@
       '<button type="button" class="app-toast-dismiss" data-notice-close aria-label="Đóng thông báo"><i data-lucide="x" class="h-4 w-4" aria-hidden="true"></i></button>';
     toast.querySelector(".app-toast-copy").textContent = text;
     stack.appendChild(toast);
-    if (window.lucide) {
-      window.lucide.createIcons({ attrs: { "stroke-width": 1.75 } });
-    }
+    if (window.hydrateLucideIcons) window.hydrateLucideIcons(toast);
 
     while (stack.children.length > 4) {
       dismissTransientNode(stack.firstElementChild);
@@ -807,6 +806,58 @@
     </tr>
   `;
 
+  const createTableRowFromMarkup = (markup) => {
+    const template = document.createElement("template");
+    template.innerHTML = String(markup || "").trim();
+    return template.content.firstElementChild;
+  };
+
+  const reconcileRenderRows = (pageJobs, start) => {
+    if (!renderTableBody) return;
+
+    const existingRows = new Map(
+      Array.from(renderTableBody.querySelectorAll("tr[data-job-id]")).map((row) => [
+        String(row.dataset.jobId || ""),
+        row,
+      ])
+    );
+    const nextIds = new Set();
+
+    pageJobs.forEach((job, index) => {
+      const jobId = String(job.id || "");
+      const markup = renderJobRowMarkup({
+        ...job,
+        index: start + index + 1,
+      });
+      const existingRow = existingRows.get(jobId);
+      nextIds.add(jobId);
+
+      if (existingRow && !renderedJobSignatures.has(jobId)) {
+        renderedJobSignatures.set(jobId, markup);
+        renderTableBody.appendChild(existingRow);
+        return;
+      }
+      if (existingRow && renderedJobSignatures.get(jobId) === markup) {
+        renderTableBody.appendChild(existingRow);
+        return;
+      }
+
+      const nextRow = createTableRowFromMarkup(markup);
+      if (!nextRow) return;
+      renderedJobSignatures.set(jobId, markup);
+      if (existingRow) {
+        existingRow.replaceWith(nextRow);
+      }
+      renderTableBody.appendChild(nextRow);
+    });
+
+    existingRows.forEach((row, jobId) => {
+      if (nextIds.has(jobId)) return;
+      row.remove();
+      renderedJobSignatures.delete(jobId);
+    });
+  };
+
   const getRenderEmptyStateMessage = (hasFilteredJobs, hasQuery) => {
     if (hasFilteredJobs) return renderCopy.emptyPage;
     return hasQuery ? renderCopy.noSearchResults : renderCopy.emptyQueue;
@@ -1004,25 +1055,18 @@
 
     const { filteredJobs, totalPages, start, pageJobs } = getVisibleRenderPageJobs();
     if (!pageJobs.length) {
+      renderedJobSignatures.clear();
       renderTableBody.innerHTML = renderEmptyRowMarkup(getRenderEmptyStateMessage(filteredJobs.length > 0, Boolean(renderSearchInput?.value.trim())));
     } else {
-      renderTableBody.innerHTML = pageJobs
-        .map((job, index) =>
-          renderJobRowMarkup({
-            ...job,
-            index: start + index + 1,
-          })
-        )
-        .join("");
+      reconcileRenderRows(pageJobs, start);
     }
 
     updateRenderSummaryRuntime(start, pageJobs.length, filteredJobs.length);
     renderPaginationControls(renderPaginationState.page, totalPages);
     updateDeleteVisibleJobsButtonRuntime(pageJobs, filteredJobs.length);
-    syncRenderedTableMarkup();
     initJobActions();
     initJobPreviewVideos();
-    if (window.lucide) window.lucide.createIcons();
+    if (window.hydrateLucideIcons) window.hydrateLucideIcons(renderTableBody);
   };
 
   const updateRenderDashboard = (payload) => {
@@ -2692,7 +2736,7 @@
           if (channelId) void createStudioSession(channelId);
         });
       });
-      if (window.lucide) window.lucide.createIcons();
+      if (window.hydrateLucideIcons) window.hydrateLucideIcons(channelList);
     };
 
     const openModal = () => {
@@ -2844,6 +2888,8 @@
 
   const initJobActions = () => {
     document.querySelectorAll("[data-job-action]").forEach((button) => {
+      if (!(button instanceof HTMLButtonElement) || button.dataset.actionReady === "true") return;
+      button.dataset.actionReady = "true";
       button.addEventListener("click", async () => {
         const action = button.dataset.jobAction;
         const jobId = button.dataset.jobId;
@@ -2867,7 +2913,7 @@
           await refreshDashboardLiveNow();
           restoreScrollPosition(scrollY);
         } catch (error) {
-        showToast(error.message || "Không thể cập nhật job.", "error");
+          showToast(error.message || "Không thể cập nhật job.", "error");
           button.disabled = false;
         }
       });
@@ -2988,7 +3034,8 @@
 
   const initJobPreviewVideos = () => {
     document.querySelectorAll(".job-preview-media[src]").forEach((node) => {
-      if (!(node instanceof HTMLVideoElement)) return;
+      if (!(node instanceof HTMLVideoElement) || node.dataset.previewReady === "true") return;
+      node.dataset.previewReady = "true";
       node.addEventListener("loadeddata", () => {
         try {
           if (node.readyState >= 2) {
@@ -3000,10 +3047,6 @@
       }, { once: true });
     });
   };
-
-  if (window.lucide) {
-    window.lucide.createIcons();
-  }
 
   if (dashboardSeedNode?.textContent) {
     try {

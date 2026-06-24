@@ -1,3 +1,4 @@
+{% from "_shell_icon.html" import shell_icon %}
 {% set is_admin_shell = (dashboard.admin_shell if dashboard.admin_shell is defined else (dashboard.current_user is defined and dashboard.current_user)) %}
 {% set shell_app_name = dashboard.app_name | default('Youtube Lush', true) %}
 {% set shell_workspace_label = dashboard.workspace_heading | default(dashboard.workspace_label | default('Workspace', true), true) %}
@@ -50,13 +51,13 @@
                 <div class="mobile-shell-nav">
                     {% if is_admin_shell and dashboard.active_page in ["live_stream_jobs", "live_workspace"] and not mobile_nav_state.has_channels %}
                     <a href="/admin/channel/index" class="nav-item">
-                        <i data-lucide="link" class="h-4 w-4"></i>
+                        {{ shell_icon('link', 'h-4 w-4 shrink-0', '1.75' if is_admin_shell else '2') }}
                         <span class="text-[13px] font-medium">Danh sách Kênh</span>
                     </a>
                     {% endif %}
                     {% for item in dashboard.nav_items | default([], true) %}
                     <a href="{{ item.href | e }}" class="nav-item {% if dashboard.active_page == item.key %}active{% endif %}">
-                        <i data-lucide="{{ item.icon | e }}" class="h-4 w-4"></i>
+                        {{ shell_icon(item.icon, 'h-4 w-4 shrink-0', '1.75' if is_admin_shell else '2') }}
                         <span class="text-[13px] {% if dashboard.active_page == item.key %}font-semibold{% else %}font-medium{% endif %}">{{ item.label | e }}</span>
                     </a>
                     {% endfor %}

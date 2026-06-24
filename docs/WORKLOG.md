@@ -1,5 +1,12 @@
 ﻿# Worklog
 
+### 2026-06-24
+- [x] Reworked shell navigation to use browser document prefetch and instant active-state updates instead of custom HTML fetch + page fade.
+- [x] Replaced CDN/deferred Lucide hydration on admin/user shells with local SVG runtimes and server-rendered shell icons, preserving current icon shapes, sizes, and stroke widths.
+- [x] Changed user render table, user live table, and admin BOT polling to keyed row reconciliation so unchanged rows/icons stay in place during polling.
+- [x] Kept create/delete/destructive flows backend-confirmed with existing confirmation semantics; no aggressive optimistic deletion or job mutation.
+- [x] Verified locally with `python -m pytest -q`, `python -m pytest tests\test_navigation_performance.py -q`, `node --check backend\app\static\js\admin_navigation.js`, `node --check backend\app\static\js\user_dashboard.js`, and `python -m compileall -q backend\app`.
+
 ### 2026-06-02
 - [x] Sửa guard failover cho live `24/7` có backup: `runtime_health` chỉ đi qua live progress route, upload progress không nhận field live-only; backup hot-standby chỉ stream sau khi primary RTMP unhealthy vượt 30 giây hoặc runtime disconnected thật sự vượt ngưỡng telemetry dài hơn, không còn bị kích hoạt bởi retry transient. Worker retry health signal nếu gửi fail và chỉ báo primary healthy sau khi progress ổn định ngắn.
 - [x] Quay lại pattern live push legacy sau khi đối chiếu app cũ và log reset theo vòng media: `_build_live_ffmpeg_arguments()` không còn thêm `-stream_loop -1`; FFmpeg đẩy một vòng `rendered.flv`, sau đó worker respawn gần như ngay lập tức khi hết media hoặc YouTube/RTMPS reset (`WORKER_LIVE_RTMP_RETRY_DELAY_SECONDS=0`). Timed live primary+backup vẫn chạy song song; `24/7` backup vẫn hot-standby/failover.

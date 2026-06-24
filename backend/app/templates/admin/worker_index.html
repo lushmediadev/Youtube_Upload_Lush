@@ -987,6 +987,7 @@
     let liveFetchInFlight = false;
     let lastBotPollHasActiveWork = false;
     let lastPayloadSignature = '';
+    const workerRowSignatures = new Map();
     let lastEventCursor = tbody ? String(tbody.dataset.initialEventCursor || '').trim() : '';
     let lastEventCreatedAt = tbody ? String(tbody.dataset.initialEventStartedAt || '').trim() : '';
     const shownEventIds = new Set();
@@ -1804,6 +1805,56 @@
         '  <td class="align-middle"><div class="flex action-row-nowrap items-center justify-end">', actionsMarkup, '</div></td>',
         '</tr>'
       ].join('');
+    }
+
+    function createWorkerRowFromMarkup(markup) {
+      const template = document.createElement('template');
+      template.innerHTML = String(markup || '').trim();
+      return template.content.firstElementChild;
+    }
+
+    function reconcileWorkerRows(items) {
+      const existingRows = new Map(
+        Array.from(tbody.querySelectorAll(':scope > tr[data-worker-row-id]')).map(function (row) {
+          return [String(row.dataset.workerRowId || ''), row];
+        })
+      );
+      const nextIds = new Set();
+      let changed = false;
+
+      items.forEach(function (worker) {
+        const workerId = String(worker && worker.id ? worker.id : '');
+        const markup = buildWorkerRowMarkup(worker);
+        const existingRow = existingRows.get(workerId);
+        nextIds.add(workerId);
+
+        if (existingRow && workerRowSignatures.get(workerId) === markup) {
+          tbody.appendChild(existingRow);
+          return;
+        }
+
+        const nextRow = createWorkerRowFromMarkup(markup);
+        if (!nextRow) {
+          return;
+        }
+        workerRowSignatures.set(workerId, markup);
+        if (existingRow) {
+          existingRow.replaceWith(nextRow);
+        }
+        tbody.appendChild(nextRow);
+        changed = true;
+      });
+
+      existingRows.forEach(function (row, workerId) {
+        if (nextIds.has(workerId)) {
+          return;
+        }
+        row.remove();
+        workerRowSignatures.delete(workerId);
+        changed = true;
+      });
+
+      return changed;
     }
 
     function parseAssignedUserIds(rawValue) {
@@ -2658,8 +2709,9 @@
         if (botSummaryStrip) {
           botSummaryStrip.innerHTML = buildSummaryStripMarkup(summaryStrip);
         }
-        tbody.innerHTML = items.map(buildWorkerRowMarkup).join('');
-        table.dispatchEvent(new CustomEvent('admin-table:refresh-rows'));
+        if (reconcileWorkerRows(items)) {
+          table.dispatchEvent(new CustomEvent('admin-table:refresh-rows'));
+        }
       } finally {
         liveFetchInFlight = false;
       }
@@ -2739,11 +2791,7 @@
       })
     );
 
-    fetchLiveWorkers()
-      .catch(function (error) {
-        console.error(error);
-      })
-      .finally(ensureLivePollStarted);
+    ensureLivePollStarted();
   });
 </script>
 {% endblock %}

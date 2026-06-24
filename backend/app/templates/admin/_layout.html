@@ -1,3 +1,4 @@
+{% from "_shell_icon.html" import shell_icon %}
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -7,14 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="{{ request.app.url_path_for('static', path='brand/site-favicon.svg') }}">
     <link rel="stylesheet" href="{{ request.app.url_path_for('static', path='css/admin-fonts.css') }}?v=20260514-local-fonts">
     <link rel="stylesheet" href="{{ request.app.url_path_for('static', path='css/admin-tailwind.css') }}?v=20260514-avatar-safelist">
-    <script>
-      window.hydrateAdminIcons = function () {
-        if (window.lucide) {
-          window.lucide.createIcons({ attrs: { 'stroke-width': 1.75 } });
-        }
-      };
-    </script>
-    <script defer src="{{ request.app.url_path_for('static', path='vendor/lucide-admin.min.js') }}?v=20260514-admin-icons-stable"></script>
+    <script src="{{ request.app.url_path_for('static', path='vendor/lucide-admin-instant.min.js') }}?v=20260624-instant-icons"></script>
     <style>
       :root {
         color-scheme: light;
@@ -59,14 +53,6 @@
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         border-bottom: 1px solid rgba(226, 232, 240, 0.75);
-      }
-
-      .app-shell-content {
-        transition: opacity 120ms ease;
-      }
-
-      .admin-fast-nav-loading .app-shell-content {
-        opacity: 0.82;
       }
 
       .toolbar-select,
@@ -1119,7 +1105,7 @@
                     {% endif %}
                     {% for item in dashboard.nav_items %}
                     <a href="{{ item.href }}" class="nav-item {% if dashboard.active_page == item.key %}active{% endif %}">
-                        <i data-lucide="{{ item.icon }}" class="h-4 w-4"></i>
+                        {{ shell_icon(item.icon, 'h-4 w-4 shrink-0') }}
                         <span class="text-[13px] {% if dashboard.active_page == item.key %}font-semibold{% else %}font-medium{% endif %}">{{ item.label }}</span>
                     </a>
                     {% endfor %}
@@ -1188,10 +1174,6 @@
     {% include "_app_shell_mobile_drawer.html" %}
     <script>
       document.addEventListener('DOMContentLoaded', function () {
-        if (window.lucide) {
-          lucide.createIcons();
-        }
-
         document.addEventListener('click', function (event) {
           const openButton = event.target.closest('[data-dialog-open]');
           if (openButton) {
@@ -1301,9 +1283,7 @@
                 submitFilterForm();
               });
               tagsNode.appendChild(tag);
-              if (window.lucide) {
-                window.lucide.createIcons({ attrs: { 'stroke-width': 1.75 } });
-              }
+              if (window.hydrateLucideIcons) window.hydrateLucideIcons(tag);
               });
             }
 
@@ -1685,9 +1665,7 @@
           '<button type="button" class="notice-close" data-notice-close aria-label="Đóng thông báo"><i data-lucide="x" class="h-4 w-4" aria-hidden="true"></i></button>';
         toast.querySelector('.admin-toast-copy').textContent = text;
         stack.appendChild(toast);
-        if (window.lucide) {
-          window.lucide.createIcons({ attrs: { 'stroke-width': 1.75 } });
-        }
+        if (window.hydrateLucideIcons) window.hydrateLucideIcons(toast);
         initTransientNotices(stack);
       };
 
@@ -1719,7 +1697,7 @@
     </script>
     <script defer src="{{ request.app.url_path_for('static', path='js/mobile_shell.js') }}"></script>
     <script defer src="{{ request.app.url_path_for('static', path='js/admin_tables.js') }}?v=20260514-no-blank-tables"></script>
-    <script defer src="{{ request.app.url_path_for('static', path='js/admin_navigation.js') }}?v=20260602-safe-real-nav"></script>
+    <script defer src="{{ request.app.url_path_for('static', path='js/admin_navigation.js') }}?v=20260624-document-prefetch"></script>
     {% block page_scripts %}{% endblock %}
 </body>
 </html>

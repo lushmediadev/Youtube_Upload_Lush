@@ -34,7 +34,8 @@
   </script>
   <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/vn.js"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>window.__lucideStrokeWidth = "2";</script>
+  <script src="{{ request.app.url_path_for('static', path='vendor/lucide-app.min.js') }}?v=20260624-instant-icons"></script>
   <style>
     .datetime-field { position: relative; }
     .datetime-field-input { padding-left: 16px !important; padding-right: 48px !important; }
@@ -917,7 +918,7 @@
               <tbody id="liveStreamTableBody" class="divide-y divide-slate-200/70 text-slate-700">
                 {% if dashboard.live_stream_rows %}
                 {% for stream in dashboard.live_stream_rows %}
-                <tr class="hover:bg-slate-50 transition-colors" data-stream-search="{{ ((stream.title | default('', true)) ~ ' ' ~ (stream.stream_name | default('', true)) ~ ' ' ~ (stream.bot_name | default('', true)) ~ ' ' ~ (stream.group_name | default('', true))) | lower | e }}">
+                <tr class="hover:bg-slate-50 transition-colors" data-stream-id="{{ stream.id | e }}" data-stream-search="{{ ((stream.title | default('', true)) ~ ' ' ~ (stream.stream_name | default('', true)) ~ ' ' ~ (stream.bot_name | default('', true)) ~ ' ' ~ (stream.group_name | default('', true))) | lower | e }}">
                   <td class="px-4 py-5 text-center font-mono text-[13px] text-slate-500">{{ stream.index }}</td>
                   <td class="px-4 py-5 align-top">
                     <div class="flex items-center gap-3 min-w-0">
@@ -1140,9 +1141,8 @@
   </div>
 
   <script defer src="{{ request.app.url_path_for('static', path='js/mobile_shell.js') }}"></script>
-  <script defer src="{{ request.app.url_path_for('static', path='js/admin_navigation.js') }}?v=20260602-safe-real-nav"></script>
+  <script defer src="{{ request.app.url_path_for('static', path='js/admin_navigation.js') }}?v=20260624-document-prefetch"></script>
   <script>
-    if (window.lucide) window.lucide.createIcons();
     const dismissTransientNode = (node) => {
       if (!(node instanceof HTMLElement) || node.dataset.dismissed === 'true') return;
       node.dataset.dismissed = 'true';
@@ -1184,9 +1184,7 @@
         '<button type="button" class="app-toast-dismiss" data-notice-close aria-label="Đóng thông báo"><i data-lucide="x" class="h-4 w-4" aria-hidden="true"></i></button>';
       toast.querySelector('.app-toast-copy').textContent = text;
       stack.appendChild(toast);
-      if (window.lucide) {
-        window.lucide.createIcons({ attrs: { 'stroke-width': 1.75 } });
-      }
+      if (window.hydrateLucideIcons) window.hydrateLucideIcons(toast);
       initTransientNotices(stack);
     };
     const clearTransientNoticeParams = () => {
@@ -2170,8 +2168,15 @@
       `;
     };
 
+    const liveRowSignatures = new Map();
+    const createLiveRowFromMarkup = (markup) => {
+      const template = document.createElement('template');
+      template.innerHTML = String(markup || '').trim();
+      return template.content.firstElementChild;
+    };
+
     const buildLiveRowMarkup = (stream) => `
-      <tr class="hover:bg-slate-50 transition-colors" data-stream-search="${escapeHtml(buildLiveRowSearch(stream))}">
+      <tr class="hover:bg-slate-50 transition-colors" data-stream-id="${escapeHtml(stream.id || '')}" data-stream-search="${escapeHtml(buildLiveRowSearch(stream))}">
         <td class="px-4 py-5 text-center font-mono text-[13px] text-slate-500">${escapeHtml(stream.index || '')}</td>
         <td class="px-4 py-5 align-top">${renderLiveJobInfoMarkup(stream)}</td>
         <td class="px-4 py-5 align-top">${renderLiveActionMarkup(stream)}</td>
@@ -2224,6 +2229,35 @@
       </tr>
     `;
 
+    const reconcileLiveRows = (liveRows) => {
+      const existingRows = new Map(
+        Array.from(liveStreamTableBody.querySelectorAll('tr[data-stream-id]'))
+          .map((row) => [String(row.dataset.streamId || ''), row])
+          .filter(([streamId]) => streamId)
+      );
+      const nextIds = new Set();
+      const fragment = document.createDocumentFragment();
+
+      liveRows.forEach((stream) => {
+        const streamId = String(stream.id || '').trim();
+        const signature = JSON.stringify(stream);
+        nextIds.add(streamId);
+        let row = existingRows.get(streamId);
+
+        if (!row || (liveRowSignatures.has(streamId) && liveRowSignatures.get(streamId) !== signature)) {
+          row = createLiveRowFromMarkup(buildLiveRowMarkup(stream));
+        }
+        if (!row) return;
+        liveRowSignatures.set(streamId, signature);
+        fragment.appendChild(row);
+      });
+
+      Array.from(liveRowSignatures.keys()).forEach((streamId) => {
+        if (!nextIds.has(streamId)) liveRowSignatures.delete(streamId);
+      });
+      liveStreamTableBody.replaceChildren(fragment);
+    };
+
     const renderLiveRows = (rows) => {
       if (!(liveStreamTableBody instanceof HTMLElement)) return;
       const liveRows = Array.isArray(rows) ? rows : [];
@@ -2232,11 +2266,12 @@
       const streamNameHistoryField = liveHistoryFields.find((field) => field.key === 'stream_name');
       if (streamNameHistoryField) renderLiveHistoryOptions(streamNameHistoryField);
       if (!liveRows.length) {
+        liveRowSignatures.clear();
         liveStreamTableBody.innerHTML = '<tr data-live-empty-row><td colspan="12" class="px-6 py-10 text-center text-[13px] text-slate-500">Chưa có luồng live nào trong danh sách</td></tr>';
       } else {
-        liveStreamTableBody.innerHTML = liveRows.map((stream) => buildLiveRowMarkup(stream)).join('');
+        reconcileLiveRows(liveRows);
       }
-      if (window.lucide) window.lucide.createIcons();
+      if (window.hydrateLucideIcons) window.hydrateLucideIcons(liveStreamTableBody);
       applyLiveSearchFilter();
       updateLiveDeleteVisibleButton();
     };

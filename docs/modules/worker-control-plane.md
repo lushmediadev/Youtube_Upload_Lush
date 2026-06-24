@@ -33,6 +33,7 @@
 ## Invariants
 - Worker API loop co jitter/backoff de tranh nhieu worker cung heartbeat/claim dung mot nhip. Live worker dang ban chi probe `claim_live_stream` day hon khi vua thay khong co job moi, nhung status/progress/failover event van day len control-plane ngay khi co thay doi.
 - Worker la outbound-only; control plane khong push stateful browser runtime vao chinh no.
+- Remote Google Drive download chay `gdown` trong subprocess co the terminate; worker coi download la stalled khi target hoac `target*.part` khong tang dung luong trong `WORKER_REMOTE_DOWNLOAD_STALL_TIMEOUT_SECONDS` (mac dinh 180s), xoa partial va retry toi da `WORKER_REMOTE_DOWNLOAD_ATTEMPTS` (mac dinh 3) truoc khi fallback direct URL/fail job.
 - Live worker la local supervisor cho ffmpeg/live runtime; control-plane miss heartbeat/lease ban dau chi la telemetry stale, khong phai bang chung runtime da chet.
 - Neu primary live `24/7` co backup va telemetry stale qua `LIVE_TELEMETRY_FAILOVER_SECONDS` (mac dinh 120s), control-plane moi release primary claim de backup takeover va gui ops Telegram.
 - Neu primary live `24/7` co backup van heartbeat nhung FFmpeg/RTMP khong co `out_time_ms` progress hoac loi retry lien tuc qua `WORKER_LIVE_PRIMARY_UNHEALTHY_SECONDS`/`LIVE_PRIMARY_HEALTH_FAILOVER_SECONDS` (mac dinh 30s), worker bao `rtmp_unhealthy` de backup bat RTMP; `status=disconnected`/telemetry fallback van dung nguong 120s. Khi primary co progress on dinh qua `WORKER_LIVE_PRIMARY_RECOVERY_SECONDS` (mac dinh 10s), worker bao `healthy` va backup ve hot-standby.
@@ -43,6 +44,7 @@
 
 ## Known Pitfalls
 - Browser uploader de treo hoac bao sai progress neu chi dua vao dialog footer; can doi chieu draft/background verification.
+- Khong goi `gdown.download()` truc tiep trong worker process voi `timeout=None`: heartbeat thread van co the bao BOT online trong khi main loop bi treo vo han va khong claim job moi.
 - Profile stale, Google Sign in redirect, verification challenge co the lam nham la bug upload.
 - Runtime deploy drift giua local/GitHub/VPS tung xay ra; worker source can doi chieu production truoc khi sua cac bug kho.
 - Live incident can doi chieu local `worker-data/live-state/<stream_id>/current.json`, `events.log`, va `ffmpeg.log` tren worker truoc khi ket luan RTMP hay worker runtime hong.

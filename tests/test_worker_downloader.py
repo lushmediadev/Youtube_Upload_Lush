@@ -16,12 +16,19 @@ from workers.agent import downloader
 
 
 class FakeProcess:
-    def __init__(self, return_code: int | None = None) -> None:
+    def __init__(
+        self,
+        return_code: int | None = None,
+        poll_results: list[int | None] | None = None,
+    ) -> None:
         self.return_code = return_code
+        self.poll_results = list(poll_results or [])
         self.terminated = False
         self.killed = False
 
     def poll(self) -> int | None:
+        if self.poll_results:
+            self.return_code = self.poll_results.pop(0)
         return self.return_code
 
     def terminate(self) -> None:
@@ -56,6 +63,32 @@ class WorkerDownloaderTests(unittest.TestCase):
 
             self.assertTrue(process.terminated)
             self.assertFalse(process.killed)
+
+    def test_wait_for_download_process_treats_gdown_part_growth_as_activity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "video.mp4"
+            partial = Path(temp_dir) / "video.mp4abc.part"
+            process = FakeProcess(poll_results=[None, None, 0])
+            sleep_calls = 0
+
+            def grow_partial(_: float) -> None:
+                nonlocal sleep_calls
+                sleep_calls += 1
+                if sleep_calls == 1:
+                    partial.write_bytes(b"downloading")
+
+            with (
+                patch.object(downloader.time, "monotonic", side_effect=[0.0, 0.5, 1.4]),
+                patch.object(downloader.time, "sleep", side_effect=grow_partial),
+            ):
+                downloader._wait_for_download_process(
+                    process,
+                    target,
+                    stall_timeout_seconds=1.0,
+                    poll_interval_seconds=0.1,
+                )
+
+            self.assertFalse(process.terminated)
 
     def test_gdown_attempt_terminates_when_progress_callback_cancels(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -234,6 +234,17 @@ def _terminate_download_process(process: DownloadProcess) -> None:
     process.wait(timeout=5.0)
 
 
+def _download_activity_size(target_path: Path) -> int:
+    candidates = [target_path, *target_path.parent.glob(f"{target_path.name}*.part")]
+    total_size = 0
+    for candidate in candidates:
+        try:
+            total_size += candidate.stat().st_size
+        except OSError:
+            continue
+    return total_size
+
+
 def _wait_for_download_process(
     process: DownloadProcess,
     target_path: Path,
@@ -243,13 +254,10 @@ def _wait_for_download_process(
     progress_callback: DownloadProgressCallback | None = None,
     label: str = "asset",
 ) -> None:
-    last_size = target_path.stat().st_size if target_path.exists() else 0
+    last_size = _download_activity_size(target_path)
     last_activity_at = time.monotonic()
     while process.poll() is None:
-        try:
-            current_size = target_path.stat().st_size if target_path.exists() else 0
-        except OSError:
-            current_size = 0
+        current_size = _download_activity_size(target_path)
         now = time.monotonic()
         if current_size != last_size:
             last_size = current_size

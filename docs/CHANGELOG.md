@@ -9,8 +9,9 @@
 
 ### 2026-06-25 - Admin user avatar fallback
 - Fixed: Admin/user avatar initials now skip invisible prefix characters and punctuation, so usernames copied with zero-width/BOM characters still render a visible avatar.
+- Fixed: Added the missing `bg-rose-500` avatar palette class to the admin Tailwind safelist, rebuilt `admin-tailwind.css`, and bumped the admin CSS cache key so rose avatars no longer render as white text on a white row.
 - Added: Regression coverage for hidden-prefix usernames such as `\u200bm-user1`.
-- Affected files: `backend/app/store.py`, `tests/test_admin_user_avatar.py`
+- Affected files: `backend/app/store.py`, `backend/app/static/css/admin-tailwind.css`, `backend/app/templates/admin/_layout.html`, `tailwind.admin.config.js`, `tests/test_admin_user_avatar.py`
 - Impact/Risk: Low; control-plane display helper only.
 
 ### 2026-06-24 - Smooth shell navigation and polling redraws

@@ -36,6 +36,7 @@
 - Encoding/UTF-8 trong admin templates tung gay loi copy/notice; can can than khi sua text.
 - Admin templates de bi phinh do chua ca layout, data marker va inline behavior; nen giu tri thuc o module doc thay vi mo rong root AGENTS.
 - Avatar initials cua user phai bo qua ky tu an/format o dau username; khong lay truc tiep codepoint dau tien vi zero-width/BOM se lam avatar trong nhu bi mat.
+- Moi class background tra ve tu `_avatar_palette()` phai co trong `tailwind.admin.config.js` safelist va `admin-tailwind.css`; neu thieu, initials mau trang se hien tren nen trang.
 
 ## Related Decisions
 - `DEC-002`

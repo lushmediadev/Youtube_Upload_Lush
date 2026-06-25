@@ -7,6 +7,12 @@
 - Affected files: `backend/app/store.py`, `tests/test_inactive_bot_alerts.py`, `docs/DECISIONS.md`, `docs/DECISIONS_INDEX.md`, `docs/modules/backend-app.md`
 - Impact/Risk: Medium; control-plane notification semantics changed, no worker restart required.
 
+### 2026-06-25 - Admin user avatar fallback
+- Fixed: Admin/user avatar initials now skip invisible prefix characters and punctuation, so usernames copied with zero-width/BOM characters still render a visible avatar.
+- Added: Regression coverage for hidden-prefix usernames such as `\u200bm-user1`.
+- Affected files: `backend/app/store.py`, `tests/test_admin_user_avatar.py`
+- Impact/Risk: Low; control-plane display helper only.
+
 ### 2026-06-24 - Smooth shell navigation and polling redraws
 - Changed: Admin/user shell navigation now prefetches internal documents and updates active nav/tab state immediately, without fading the current page while the browser navigates.
 - Changed: Sidebar icons are server-rendered and backed by local SVG runtimes so tab switches no longer wait for CDN Lucide hydration or redraw the icon set.

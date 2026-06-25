@@ -4785,8 +4785,11 @@ class AppStore:
 
     @staticmethod
     def _initials(label: str) -> str:
-        value = (label or "?").strip()
-        return value[:1].upper() if value else "?"
+        value = (label or "").strip()
+        for char in value:
+            if char.isalnum():
+                return char.upper()
+        return "?"
 
     @staticmethod
     def _avatar_palette(label: str) -> str:

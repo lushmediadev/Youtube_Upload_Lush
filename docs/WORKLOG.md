@@ -4,6 +4,7 @@
 - [x] Changed inactive-BOT detection from per-user allocation reporting to BOT-level reporting: upload/live BOTs are only flagged when every assigned user is inactive beyond the threshold.
 - [x] Kept live BOTs with non-terminal live streams, including waiting/standby 24/7 streams, out of inactive alerts because the BOT is still doing work.
 - [x] Updated Telegram inactive-BOT messages to list BOT-level details without enumerating each assigned user.
+- [x] Fixed missing admin user avatars caused by invisible prefix characters in usernames; `_initials()` now picks the first alphanumeric character instead of blindly using the first codepoint.
 
 ### 2026-06-24
 - [x] Reworked shell navigation to use browser document prefetch and instant active-state updates instead of custom HTML fetch + page fade.

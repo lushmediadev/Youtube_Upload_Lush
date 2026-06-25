@@ -36,11 +36,13 @@
 - Route handler giu vai tro thin adapter; business state/contract tap trung o `store.py` + `schemas.py`.
 - UI user/admin duoc render tu backend nay, khong coi React/Vite la source chinh.
 - Khi doi worker/user/channel/job contract, phai dong bo store, schema, route va docs.
+- Inactive BOT alert/admin snapshot la BOT-level: chi canh bao khi tat ca assigned users tren worker deu idle qua nguong; live BOT co stream non-terminal/standby van tinh la dang hoat dong.
 
 ## Known Pitfalls
 - `store.py` dang gom nhieu nghiep vu va la noi de phat sinh drift nhat.
 - Template + JS co query-string cache key; sua JS ma quen bump key co the lam browser van giu bundle cu.
 - Local bootstrap SQLite va production target Postgres/Redis chua dong bo hoan toan; khong duoc nham lam bootstrap state la architecture cuoi cung.
+- Khong quay lai dem inactive theo tung `user + BOT` trong Telegram alert, vi BOT multi-user se bi spam false positive du van con user khac dang su dung.
 
 ## Related Decisions
 - `DEC-001`

@@ -3356,6 +3356,39 @@ class AppStore:
             "inactive_days": inactive_days,
         }
 
+    def _inactive_bot_worker_record(
+        self,
+        *,
+        worker: WorkerRecord,
+        assigned_users: list[UserSummary],
+        workspace: str,
+        bot_type: str,
+        bot_type_label: str,
+        inactivity_summary: dict[str, Any],
+    ) -> dict[str, Any]:
+        manager_id, manager_name = self._resolved_bot_manager_scope(
+            manager_id=worker.manager_id,
+            manager_name=worker.manager_name,
+            assigned_users=assigned_users,
+        )
+        return {
+            "workspace": workspace,
+            "bot_type": bot_type,
+            "bot_type_label": bot_type_label,
+            "worker_id": worker.id,
+            "worker_name": self._resolve_live_worker_display_name(worker.id)
+            if workspace == "live"
+            else self._resolve_worker_display_name(worker.id),
+            "manager_id": manager_id,
+            "manager_name": manager_name,
+            "assignment_created_at": inactivity_summary.get("assignment_created_at"),
+            "last_job_created_at": inactivity_summary.get("last_job_created_at"),
+            "last_activity_at": inactivity_summary.get("last_activity_at"),
+            "inactive_days": inactivity_summary.get("inactive_days", 0),
+            "inactive_users": inactivity_summary.get("inactive_users", []),
+            "assigned_user_count": len(assigned_users),
+        }
+
     def _activity_inactive_days(self, activity_at: datetime | None, *, now: datetime) -> int:
         normalized_activity_at = self._normalize_datetime(activity_at) if activity_at is not None else None
         normalized_now = self._normalize_datetime(now) or self._now(trim=False)
@@ -3420,10 +3453,12 @@ class AppStore:
         workspace: str,
         now: datetime,
         activity_context: dict[str, dict[tuple[str, str, str], datetime]] | None = None,
+        threshold_days: int | None = None,
     ) -> dict[str, Any]:
         assigned_user_by_id = {user.id: user for user in assigned_users}
-        threshold_days = self._inactive_bot_alert_days()
-        inactive_by_user_id: dict[str, dict[str, Any]] = {}
+        threshold_days = max(1, int(threshold_days if threshold_days is not None else self._inactive_bot_alert_days()))
+        activity_by_user_id: dict[str, dict[str, Any]] = {}
+        active_user_ids: set[str] = set()
         context = activity_context or self._bot_row_inactivity_context()
 
         if workspace == "live":
@@ -3437,6 +3472,7 @@ class AppStore:
                     worker_id=worker.id,
                     live_role=live_role,
                 ):
+                    active_user_ids.add(user_id)
                     continue
                 assignment_created_at = self._assignment_created_at(link, worker)
                 last_job_created_at = context["live"].get((user_id, worker.id, live_role))
@@ -3444,14 +3480,17 @@ class AppStore:
                     [value for value in (last_job_created_at, assignment_created_at) if value is not None],
                     default=None,
                 )
-                inactive_days = self._activity_inactive_days(activity_at, now=now)
-                if inactive_days > threshold_days:
-                    current = inactive_by_user_id.get(user_id)
-                    if current is None or inactive_days > int(current.get("days") or 0):
-                        inactive_by_user_id[user_id] = {
-                            "username": assigned_user_by_id[user_id].username,
-                            "days": inactive_days,
-                        }
+                current = activity_by_user_id.get(user_id)
+                if current is None or (
+                    activity_at is not None
+                    and (current.get("activity_at") is None or activity_at > current["activity_at"])
+                ):
+                    activity_by_user_id[user_id] = {
+                        "user": assigned_user_by_id[user_id],
+                        "assignment_created_at": assignment_created_at,
+                        "last_job_created_at": last_job_created_at,
+                        "activity_at": activity_at,
+                    }
         else:
             for link in self.user_worker_links:
                 user_id = str(link.get("user_id") or "").strip()
@@ -3463,18 +3502,49 @@ class AppStore:
                     [value for value in (last_job_created_at, assignment_created_at) if value is not None],
                     default=None,
                 )
-                inactive_days = self._activity_inactive_days(activity_at, now=now)
-                if inactive_days > threshold_days:
-                    inactive_by_user_id[user_id] = {
-                        "username": assigned_user_by_id[user_id].username,
-                        "days": inactive_days,
+                current = activity_by_user_id.get(user_id)
+                if current is None or (
+                    activity_at is not None
+                    and (current.get("activity_at") is None or activity_at > current["activity_at"])
+                ):
+                    activity_by_user_id[user_id] = {
+                        "user": assigned_user_by_id[user_id],
+                        "assignment_created_at": assignment_created_at,
+                        "last_job_created_at": last_job_created_at,
+                        "activity_at": activity_at,
                     }
+
+        if not activity_by_user_id or active_user_ids:
+            return self._empty_bot_row_inactivity_summary()
+
+        inactive_by_user_id: dict[str, dict[str, Any]] = {}
+        for user_id, entry in activity_by_user_id.items():
+            inactive_days = self._activity_inactive_days(entry.get("activity_at"), now=now)
+            if inactive_days <= threshold_days:
+                return self._empty_bot_row_inactivity_summary()
+            user = entry["user"]
+            inactive_by_user_id[user_id] = {
+                "username": user.username,
+                "days": inactive_days,
+            }
 
         inactive_users = sorted(
             inactive_by_user_id.values(),
             key=lambda item: (-int(item.get("days") or 0), str(item.get("username") or "")),
         )
-        inactive_days = max([int(item.get("days") or 0) for item in inactive_users], default=0)
+        inactive_days = min([int(item.get("days") or 0) for item in inactive_users], default=0)
+        last_job_created_at = max(
+            [entry["last_job_created_at"] for entry in activity_by_user_id.values() if entry.get("last_job_created_at")],
+            default=None,
+        )
+        assignment_created_at = max(
+            [entry["assignment_created_at"] for entry in activity_by_user_id.values() if entry.get("assignment_created_at")],
+            default=None,
+        )
+        last_activity_at = max(
+            [entry["activity_at"] for entry in activity_by_user_id.values() if entry.get("activity_at")],
+            default=None,
+        )
         return {
             "inactive_days": inactive_days,
             "inactive_days_label": "\n".join(
@@ -3483,6 +3553,9 @@ class AppStore:
             ),
             "inactive_days_alert": bool(inactive_users),
             "inactive_users": inactive_users,
+            "assignment_created_at": assignment_created_at,
+            "last_job_created_at": last_job_created_at,
+            "last_activity_at": last_activity_at,
         }
 
     @staticmethod
@@ -3492,6 +3565,9 @@ class AppStore:
             "inactive_days_label": "",
             "inactive_days_alert": False,
             "inactive_users": [],
+            "assignment_created_at": None,
+            "last_job_created_at": None,
+            "last_activity_at": None,
         }
 
     @staticmethod
@@ -3583,84 +3659,67 @@ class AppStore:
     ) -> list[dict[str, Any]]:
         normalized_now = self._normalize_datetime(now) if now is not None else self._now(trim=False)
         threshold_days = max(1, int(days if days is not None else self._inactive_bot_alert_days()))
-        cutoff = normalized_now - timedelta(days=threshold_days)
+        context = self._bot_row_inactivity_context()
         inactive_records: list[dict[str, Any]] = []
         deleted_aliases = self._deleted_worker_aliases()
 
-        for link in self.user_worker_links:
-            user_id = str(link.get("user_id") or "").strip()
-            worker_id = str(link.get("worker_id") or "").strip()
-            if not user_id or not worker_id:
-                continue
-            try:
-                user = self._find_user(user_id)
-                worker = self._find_worker(worker_id)
-            except KeyError:
-                continue
+        for worker in self.workers:
             if self._worker_is_deleted(worker, deleted_aliases=deleted_aliases):
                 continue
-            assignment_created_at = self._assignment_created_at(link, worker)
-            last_job_created_at = self._upload_assignment_last_job_created_at(user_id=user.id, worker=worker)
-            last_activity_at = max(
-                [value for value in (last_job_created_at, assignment_created_at) if value is not None],
-                default=None,
+            assigned_users = self._assigned_users_for_worker(worker.id)
+            if not assigned_users:
+                continue
+            summary = self._bot_row_inactivity_summary(
+                worker=worker,
+                assigned_users=assigned_users,
+                workspace="upload",
+                now=normalized_now,
+                activity_context=context,
+                threshold_days=threshold_days,
             )
-            if last_activity_at is not None and last_activity_at >= cutoff:
+            if not summary.get("inactive_days_alert"):
                 continue
             inactive_records.append(
-                self._inactive_bot_record(
-                    user=user,
+                self._inactive_bot_worker_record(
                     worker=worker,
+                    assigned_users=assigned_users,
                     workspace="upload",
                     bot_type="upload",
                     bot_type_label="BOT upload",
-                    assignment_created_at=assignment_created_at,
-                    last_job_created_at=last_job_created_at,
-                    now=normalized_now,
+                    inactivity_summary=summary,
                 )
             )
 
-        for link in self.live_user_worker_links:
-            user_id = str(link.get("user_id") or "").strip()
-            worker_id = str(link.get("worker_id") or "").strip()
-            if not user_id or not worker_id:
-                continue
-            try:
-                user = self._find_user(user_id)
-                worker = self._find_live_worker(worker_id)
-            except KeyError:
-                continue
+        for worker in self.live_workers:
             if self._worker_is_deleted(worker, deleted_aliases=deleted_aliases):
                 continue
-            live_role = self._normalize_live_assignment_role(link.get("live_role"), fallback_note=link.get("note"))
-            if self._live_assignment_has_active_stream(
-                user_id=user.id,
-                worker_id=worker.id,
-                live_role=live_role,
-            ):
+            assigned_users = self._assigned_live_users_for_worker(worker.id)
+            if not assigned_users:
                 continue
-            assignment_created_at = self._assignment_created_at(link, worker)
-            last_job_created_at = self._live_assignment_last_stream_created_at(
-                user_id=user.id,
-                worker_id=worker.id,
-                live_role=live_role,
+            live_role = self._live_worker_assigned_role(worker.id)
+            bot_type = "live_backup" if live_role == "backup" else "live_primary"
+            bot_type_label = "BOT backup" if live_role == "backup" else "BOT live chính"
+            if live_role == "mixed":
+                bot_type = "live"
+                bot_type_label = "BOT live"
+            summary = self._bot_row_inactivity_summary(
+                worker=worker,
+                assigned_users=assigned_users,
+                workspace="live",
+                now=normalized_now,
+                activity_context=context,
+                threshold_days=threshold_days,
             )
-            last_activity_at = max(
-                [value for value in (last_job_created_at, assignment_created_at) if value is not None],
-                default=None,
-            )
-            if last_activity_at is not None and last_activity_at >= cutoff:
+            if not summary.get("inactive_days_alert"):
                 continue
             inactive_records.append(
-                self._inactive_bot_record(
-                    user=user,
+                self._inactive_bot_worker_record(
                     worker=worker,
+                    assigned_users=assigned_users,
                     workspace="live",
-                    bot_type="live_backup" if live_role == "backup" else "live_primary",
-                    bot_type_label="BOT backup" if live_role == "backup" else "BOT live chính",
-                    assignment_created_at=assignment_created_at,
-                    last_job_created_at=last_job_created_at,
-                    now=normalized_now,
+                    bot_type=bot_type,
+                    bot_type_label=bot_type_label,
+                    inactivity_summary=summary,
                 )
             )
 
@@ -3668,7 +3727,6 @@ class AppStore:
             inactive_records,
             key=lambda item: (
                 str(item.get("manager_name") or ""),
-                str(item.get("username") or ""),
                 str(item.get("workspace") or ""),
                 str(item.get("bot_type") or ""),
                 str(item.get("worker_name") or ""),
@@ -3720,7 +3778,8 @@ class AppStore:
             lines.extend(
                 [
                     f"- {item.get('bot_type_label')}: {item.get('worker_name')} ({item.get('worker_id')})",
-                    f"  User: {item.get('username')} | Manager: {item.get('manager_name')}",
+                    f"  Manager: {item.get('manager_name')}",
+                    f"  User được cấp: {int(item.get('assigned_user_count') or 0)}",
                     f"  Job gần nhất: {last_job_label} | Ngày cấp: {assigned_label}",
                     f"  Không hoạt động: {item.get('inactive_days')} ngày",
                 ]

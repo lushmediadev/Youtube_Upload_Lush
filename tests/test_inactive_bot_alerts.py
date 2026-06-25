@@ -272,7 +272,101 @@ class InactiveBotAlertTests(unittest.TestCase):
         self.assertEqual(by_id["live-backup-waiting"]["inactive_users"], [])
         self.assertEqual(by_id["live-primary-ended"]["inactive_users"], [{"username": "demo-user", "days": 20}])
 
-    def test_bot_rows_only_show_users_inactive_over_threshold(self) -> None:
+    def test_inactive_alert_reports_worker_only_when_all_assigned_upload_users_are_inactive(self) -> None:
+        old = self.now - timedelta(days=20)
+        recent = self.now - timedelta(days=2)
+        stale_job = self.now - timedelta(days=12)
+        older_job = self.now - timedelta(days=30)
+        self.store.users.append(
+            UserSummary(
+                id="user-2",
+                username="older-user",
+                display_name="Older User",
+                role="user",
+                manager_id="manager-1",
+                manager_name="manager-alpha",
+            )
+        )
+        self.store.users.append(
+            UserSummary(
+                id="user-3",
+                username="active-user",
+                display_name="Active User",
+                role="user",
+                manager_id="manager-1",
+                manager_name="manager-alpha",
+            )
+        )
+        self.store.user_meta["user-2"] = {"telegram": ""}
+        self.store.user_meta["user-3"] = {"telegram": ""}
+        self.store.workers = [
+            make_worker("worker-all-inactive", "manager-1", "manager-alpha", old),
+            make_worker("worker-mixed", "manager-1", "manager-alpha", old),
+        ]
+        self.store.user_worker_links = [
+            {"id": 1, "user_id": "user-1", "worker_id": "worker-all-inactive", "created_at": old},
+            {"id": 2, "user_id": "user-2", "worker_id": "worker-all-inactive", "created_at": old},
+            {"id": 3, "user_id": "user-1", "worker_id": "worker-mixed", "created_at": old},
+            {"id": 4, "user_id": "user-3", "worker_id": "worker-mixed", "created_at": old},
+        ]
+        self.store.channels = [
+            make_channel("channel-stale", "worker-all-inactive", "manager-alpha"),
+            make_channel("channel-older", "worker-all-inactive", "manager-alpha"),
+            make_channel("channel-mixed-stale", "worker-mixed", "manager-alpha"),
+            make_channel("channel-mixed-active", "worker-mixed", "manager-alpha"),
+        ]
+        self.store.channel_user_links = [
+            {"id": 1, "channel_id": "channel-stale", "user_id": "user-1"},
+            {"id": 2, "channel_id": "channel-older", "user_id": "user-2"},
+            {"id": 3, "channel_id": "channel-mixed-stale", "user_id": "user-1"},
+            {"id": 4, "channel_id": "channel-mixed-active", "user_id": "user-3"},
+        ]
+        self.store.jobs = [
+            make_job("job-stale", "channel-stale", "worker-all-inactive", stale_job),
+            make_job("job-older", "channel-older", "worker-all-inactive", older_job),
+            make_job("job-mixed-stale", "channel-mixed-stale", "worker-mixed", stale_job),
+            make_job("job-mixed-active", "channel-mixed-active", "worker-mixed", recent),
+        ]
+
+        inactive = self.store.get_inactive_bot_allocations(now=self.now, days=10)
+
+        self.assertEqual([item["worker_id"] for item in inactive], ["worker-all-inactive"])
+        self.assertEqual(inactive[0]["inactive_days"], 12)
+        self.assertEqual(inactive[0]["assigned_user_count"], 2)
+        self.assertEqual(
+            inactive[0]["inactive_users"],
+            [{"username": "older-user", "days": 20}, {"username": "demo-user", "days": 12}],
+        )
+
+    def test_inactive_alert_message_does_not_list_each_user(self) -> None:
+        old = self.now - timedelta(days=20)
+        self.store.users.append(
+            UserSummary(
+                id="user-2",
+                username="second-user",
+                display_name="Second User",
+                role="user",
+                manager_id="manager-1",
+                manager_name="manager-alpha",
+            )
+        )
+        self.store.user_meta["user-2"] = {"telegram": ""}
+        self.store.workers = [make_worker("worker-alpha", "manager-1", "manager-alpha", old)]
+        self.store.user_worker_links = [
+            {"id": 1, "user_id": "user-1", "worker_id": "worker-alpha", "created_at": old},
+            {"id": 2, "user_id": "user-2", "worker_id": "worker-alpha", "created_at": old},
+        ]
+
+        self.store._reconcile_inactive_bot_daily_alert(now=self.now)
+
+        admin_message = self.store.sent_alerts[0][1]
+        self.assertIn("Tổng BOT: 1", admin_message)
+        self.assertIn("worker-alpha", admin_message)
+        self.assertIn("User được cấp: 2", admin_message)
+        self.assertNotIn("User: demo-user", admin_message)
+        self.assertNotIn("second-user", admin_message)
+
+    def test_bot_rows_only_alert_when_all_assigned_users_are_inactive(self) -> None:
         old = self.now - timedelta(days=20)
         recent = self.now - timedelta(days=2)
         stale_job = self.now - timedelta(days=12)
@@ -310,20 +404,51 @@ class InactiveBotAlertTests(unittest.TestCase):
 
         rows = self.store._build_bot_rows()
 
-        self.assertEqual(rows[0]["inactive_days"], 12)
-        self.assertTrue(rows[0]["inactive_days_alert"])
-        self.assertEqual(rows[0]["inactive_days_label"], "demo-user: 12 ngày")
-        self.assertEqual(rows[0]["inactive_users"], [{"username": "demo-user", "days": 12}])
+        self.assertEqual(rows[0]["inactive_days"], 0)
+        self.assertFalse(rows[0]["inactive_days_alert"])
+        self.assertEqual(rows[0]["inactive_days_label"], "")
+        self.assertEqual(rows[0]["inactive_users"], [])
 
-        self.store.jobs.append(make_job("job-now", "channel-stale", "worker-upload-mixed", self.now))
+        self.store.jobs[1] = make_job("job-active-now-inactive", "channel-active", "worker-upload-mixed", stale_job)
+        self.store.inactive_bot_table_snapshot_date = None
         self.store._now = lambda trim=True: datetime(2026, 5, 4, 8, 30)
         rows = self.store._build_bot_rows()
-        self.assertEqual(rows[0]["inactive_users"], [{"username": "demo-user", "days": 12}])
+        self.assertEqual(rows[0]["inactive_days"], 12)
+        self.assertTrue(rows[0]["inactive_days_alert"])
+        self.assertEqual(
+            rows[0]["inactive_users"],
+            [{"username": "active-user", "days": 12}, {"username": "demo-user", "days": 12}],
+        )
 
         self.store._now = lambda trim=True: datetime(2026, 5, 5, 8, 5)
         rows = self.store._build_bot_rows()
-        self.assertEqual(rows[0]["inactive_days"], 0)
-        self.assertEqual(rows[0]["inactive_users"], [])
+        self.assertEqual(rows[0]["inactive_days"], 13)
+        self.assertEqual(
+            rows[0]["inactive_users"],
+            [{"username": "active-user", "days": 13}, {"username": "demo-user", "days": 13}],
+        )
+
+    def test_live_standby_stream_keeps_bot_active_for_inactive_alerts(self) -> None:
+        old = self.now - timedelta(days=30)
+        self.store.live_workers = [
+            make_worker("live-primary-standby", "manager-1", "manager-alpha", old),
+            make_worker("live-primary-ended", "manager-1", "manager-alpha", old),
+        ]
+        self.store.live_user_worker_links = [
+            {"id": 1, "user_id": "user-1", "worker_id": "live-primary-standby", "live_role": "primary", "created_at": old},
+            {"id": 2, "user_id": "user-1", "worker_id": "live-primary-ended", "live_role": "primary", "created_at": old},
+        ]
+        self.store.live_streams = [
+            make_stream("stream-standby", "user-1", "live-primary-standby", None, old, status="waiting"),
+            make_stream("stream-ended", "user-1", "live-primary-ended", None, old, status="ended"),
+        ]
+
+        inactive = self.store.get_inactive_bot_allocations(now=self.now, days=10)
+
+        self.assertEqual(
+            {(item["worker_id"], item["bot_type"]) for item in inactive},
+            {("live-primary-ended", "live_primary")},
+        )
 
     def test_daily_alert_routes_all_inactive_bots_to_admin_and_only_owned_bots_to_each_manager(self) -> None:
         old = self.now - timedelta(days=20)

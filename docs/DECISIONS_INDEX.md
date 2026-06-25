@@ -47,7 +47,7 @@
 | DEC-041 | Quan tri quota live phai theo safe policy: khong duoc ha quota hoac go assignment xuong thap hon so luong active hien tai cua user tren BOT; stream dang chay khong bi kill, quota moi chi co the ap khi runtime da co ve muc an toan | Active | live admin assignment + runtime safety | High |
 | DEC-042 | Live worker duoc phep chay nhieu stream fast-path, nhung normalize media phai serialize theo tung worker/VPS (`1 normalize slot` mac dinh); stream khong can normalize van tiep tuc `copy` song song | Active | live runtime stability + CPU isolation | High |
 | DEC-043 | VPS migration cho control-plane dung fresh Git checkout + runtime data copy; BOT worker duoc bootstrap/add lai rieng sau khi control-plane moi verify | Active | infra migration | High |
-| DEC-044 | Inactive BOT alert chay hang ngay luc 8h sang, dem allocation `user + BOT` khong co upload/live job moi qua 10 ngay, route manager theo `manager_id`, va throttle theo daily attempt de tranh retry storm | Active | backend ops notifications | Medium |
+| DEC-044 | Inactive BOT alert chay hang ngay luc 8h sang theo `worker/BOT`: chi canh bao khi tat ca user duoc cap tren BOT deu khong co upload/live activity qua nguong; live co stream non-terminal/standby van tinh la dang hoat dong | Active | backend ops notifications | Medium |
 | DEC-045 | Live job chi cho sua khi chua vao runtime nang hoac da den pha `waiting`; `downloading/preparing` phai khoa nut `Sửa` va backend update de tranh race runtime cu | Active | live runtime + edit safety | High |
 
 | DEC-046 | BOT live/backup phai co `live_role` mac dinh tren chinh `WorkerRecord`; assignment `user + BOT` chi la quota/scope va khong duoc la noi duy nhat luu chuc nang BOT | Active | live admin assignment + bot metadata | High |

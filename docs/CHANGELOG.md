@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+### 2026-06-25 - BOT-level inactive alerts
+- Changed: Daily inactive-BOT Telegram alerts now group by BOT instead of `user + BOT`; a multi-user BOT is reported only when every assigned user is idle beyond the threshold.
+- Changed: Live BOT inactivity treats non-terminal live streams, including waiting/standby streams, as active so old 24/7 streams still keep the BOT out of inactive alerts.
+- Changed: Inactive alert messages no longer list each user; they show BOT, manager, assigned-user count, latest job/activity date, and BOT idle days.
+- Affected files: `backend/app/store.py`, `tests/test_inactive_bot_alerts.py`, `docs/DECISIONS.md`, `docs/DECISIONS_INDEX.md`, `docs/modules/backend-app.md`
+- Impact/Risk: Medium; control-plane notification semantics changed, no worker restart required.
+
 ### 2026-06-24 - Smooth shell navigation and polling redraws
 - Changed: Admin/user shell navigation now prefetches internal documents and updates active nav/tab state immediately, without fading the current page while the browser navigates.
 - Changed: Sidebar icons are server-rendered and backed by local SVG runtimes so tab switches no longer wait for CDN Lucide hydration or redraw the icon set.

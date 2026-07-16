@@ -96,6 +96,9 @@ def make_stream(
     created_at: datetime,
     *,
     status: str = "ended",
+    updated_at: datetime | None = None,
+    ended_at: datetime | None = None,
+    stop_requested_at: datetime | None = None,
 ) -> LiveStreamRecord:
     return LiveStreamRecord(
         id=stream_id,
@@ -113,7 +116,9 @@ def make_stream(
         video_url="https://example.com/video.mp4",
         status=status,
         created_at=created_at,
-        updated_at=created_at,
+        updated_at=updated_at or created_at,
+        ended_at=ended_at,
+        stop_requested_at=stop_requested_at,
     )
 
 
@@ -449,6 +454,88 @@ class InactiveBotAlertTests(unittest.TestCase):
             {(item["worker_id"], item["bot_type"]) for item in inactive},
             {("live-primary-ended", "live_primary")},
         )
+
+    def test_live_terminal_stream_uses_terminal_time_for_telegram_inactivity(self) -> None:
+        created_at = self.now - timedelta(days=47)
+        stopped_at = self.now - timedelta(days=1)
+        self.store._now = lambda trim=True: self.now
+        self.store.live_workers = [
+            make_worker("live-primary", "manager-1", "manager-alpha", created_at),
+            make_worker("live-backup", "manager-1", "manager-alpha", created_at),
+        ]
+        self.store.live_user_worker_links = [
+            {
+                "id": 1,
+                "user_id": "user-1",
+                "worker_id": "live-primary",
+                "live_role": "primary",
+                "created_at": created_at,
+            },
+            {
+                "id": 2,
+                "user_id": "user-1",
+                "worker_id": "live-backup",
+                "live_role": "backup",
+                "created_at": created_at,
+            },
+        ]
+        self.store.live_streams = [
+            make_stream(
+                "stream-stopped",
+                "user-1",
+                "live-primary",
+                "live-backup",
+                created_at,
+                status="stopped",
+                updated_at=stopped_at,
+                ended_at=stopped_at,
+                stop_requested_at=stopped_at,
+            )
+        ]
+
+        self.assertEqual(self.store.get_inactive_bot_allocations(now=self.now, days=10), [])
+
+        rows = self.store._build_bot_rows(workspace_mode="live")
+        by_id = {row["id"]: row for row in rows}
+        self.assertEqual(by_id["live-primary"]["inactive_days"], 47)
+        self.assertEqual(by_id["live-backup"]["inactive_days"], 47)
+
+        terminal_time = self.now - timedelta(days=11)
+        stream = self.store.live_streams[0]
+        stream.updated_at = terminal_time
+        stream.ended_at = terminal_time
+        stream.stop_requested_at = terminal_time
+        inactive = self.store.get_inactive_bot_allocations(now=self.now, days=10)
+
+        self.assertEqual({item["worker_id"] for item in inactive}, {"live-primary", "live-backup"})
+        self.assertEqual({item["inactive_days"] for item in inactive}, {11})
+        self.assertEqual({item["last_job_created_at"] for item in inactive}, {created_at})
+
+    def test_stop_live_stream_logs_actor_without_changing_telegram_message(self) -> None:
+        created_at = self.now - timedelta(days=1)
+        self.store._now = lambda trim=True: self.now
+        self.store.live_streams = [
+            make_stream(
+                "stream-running",
+                "user-1",
+                "live-primary",
+                None,
+                created_at,
+                status="streaming",
+            )
+        ]
+
+        with self.assertLogs("backend.app.store", level="INFO") as captured:
+            stopped = self.store.stop_live_stream(
+                "stream-running",
+                viewer_role="user",
+                viewer_id="user-1",
+            )
+
+        self.assertEqual(stopped.status, "stopped")
+        self.assertIn("viewer_id=user-1", captured.output[0])
+        self.assertIn("viewer_username=demo-user", captured.output[0])
+        self.assertTrue(all("viewer_username" not in message for _, message in self.store.sent_alerts))
 
     def test_daily_alert_routes_all_inactive_bots_to_admin_and_only_owned_bots_to_each_manager(self) -> None:
         old = self.now - timedelta(days=20)

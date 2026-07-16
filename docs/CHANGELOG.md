@@ -1,5 +1,18 @@
 ﻿# Changelog
 
+### 2026-07-16 - Correct terminal live inactivity alerts
+- Fixed: Daily inactive-BOT Telegram selection now starts live BOT inactivity from the latest terminal runtime time (`ended_at`, `stop_requested_at`, or `updated_at`) instead of immediately falling back to an old stream creation date.
+- Kept: Non-terminal/standby live streams remain excluded, upload BOT behavior and admin BOT inactivity snapshots are unchanged, and Telegram message content remains BOT-level without stop-actor details.
+- Added: `stop_live_stream()` writes the acting `viewer_id` and username to the control-plane service log for later investigation.
+- Verification: `python -m pytest -q` passed `137` tests; `python -m compileall backend/app` passed.
+- Impact/Risk: Low; control-plane notification selection and logging only, no worker code or FFmpeg path changed.
+
+### 2026-06-29 - Disable stale inactive-BOT sender
+- Investigated: Historical host `82.197.71.6` still had `youtube-upload-web.service` running an old control-plane commit (`914a9e8`) with the per-user inactive-BOT Telegram formatter (`User: ... | Manager: ...`).
+- Fixed: Stopped and disabled `youtube-upload-web.service` on `82.197.71.6`, leaving current production `109.123.227.253` untouched.
+- Verification: Current production remained `active` on commit `50a1080` and `/api/health` returned `{"status":"ok"}`.
+- Impact/Risk: Operational cleanup only; no code change and no worker restart.
+
 ### 2026-06-25 - BOT-level inactive alerts
 - Changed: Daily inactive-BOT Telegram alerts now group by BOT instead of `user + BOT`; a multi-user BOT is reported only when every assigned user is idle beyond the threshold.
 - Changed: Live BOT inactivity treats non-terminal live streams, including waiting/standby streams, as active so old 24/7 streams still keep the BOT out of inactive alerts.

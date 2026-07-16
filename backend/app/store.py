@@ -3276,6 +3276,18 @@ class AppStore:
         status = str(stream.status or "").strip().lower() or "scheduled"
         return status in cls._live_worker_scheduled_statuses()
 
+    @classmethod
+    def _live_stream_terminal_activity_at(cls, stream: LiveStreamRecord) -> datetime | None:
+        status = str(stream.status or "").strip().lower()
+        if status not in {"ended", "stopped", "error"}:
+            return None
+        candidates = [
+            cls._normalize_datetime(value)
+            for value in (stream.ended_at, stream.stop_requested_at, stream.updated_at, stream.created_at)
+            if value is not None
+        ]
+        return max(candidates, default=None)
+
     def _live_assignment_has_active_stream(
         self,
         *,
@@ -3428,22 +3440,38 @@ class AppStore:
                 upload_last_by_key[key] = max(upload_last_by_key.get(key, job.created_at), job.created_at)
 
         live_last_by_key: dict[tuple[str, str, str], datetime] = {}
+        live_terminal_last_by_key: dict[tuple[str, str, str], datetime] = {}
         for stream in self.live_streams:
             if bool(stream.is_runtime_clone):
                 continue
             user_id = str(stream.owner_user_id or "").strip()
             if not user_id:
                 continue
+            terminal_activity_at = self._live_stream_terminal_activity_at(stream)
             primary_worker_id = str(stream.primary_worker_id or "").strip()
             if primary_worker_id:
                 key = (user_id, primary_worker_id, "primary")
                 live_last_by_key[key] = max(live_last_by_key.get(key, stream.created_at), stream.created_at)
+                if terminal_activity_at is not None:
+                    live_terminal_last_by_key[key] = max(
+                        live_terminal_last_by_key.get(key, terminal_activity_at),
+                        terminal_activity_at,
+                    )
             backup_worker_id = str(stream.backup_worker_id or "").strip()
             if backup_worker_id:
                 key = (user_id, backup_worker_id, "backup")
                 live_last_by_key[key] = max(live_last_by_key.get(key, stream.created_at), stream.created_at)
+                if terminal_activity_at is not None:
+                    live_terminal_last_by_key[key] = max(
+                        live_terminal_last_by_key.get(key, terminal_activity_at),
+                        terminal_activity_at,
+                    )
 
-        return {"upload": upload_last_by_key, "live": live_last_by_key}
+        return {
+            "upload": upload_last_by_key,
+            "live": live_last_by_key,
+            "live_terminal": live_terminal_last_by_key,
+        }
 
     def _bot_row_inactivity_summary(
         self,
@@ -3454,6 +3482,7 @@ class AppStore:
         now: datetime,
         activity_context: dict[str, dict[tuple[str, str, str], datetime]] | None = None,
         threshold_days: int | None = None,
+        include_live_terminal_activity: bool = False,
     ) -> dict[str, Any]:
         assigned_user_by_id = {user.id: user for user in assigned_users}
         threshold_days = max(1, int(threshold_days if threshold_days is not None else self._inactive_bot_alert_days()))
@@ -3476,8 +3505,17 @@ class AppStore:
                     continue
                 assignment_created_at = self._assignment_created_at(link, worker)
                 last_job_created_at = context["live"].get((user_id, worker.id, live_role))
+                terminal_activity_at = (
+                    context.get("live_terminal", {}).get((user_id, worker.id, live_role))
+                    if include_live_terminal_activity
+                    else None
+                )
                 activity_at = max(
-                    [value for value in (last_job_created_at, assignment_created_at) if value is not None],
+                    [
+                        value
+                        for value in (last_job_created_at, assignment_created_at, terminal_activity_at)
+                        if value is not None
+                    ],
                     default=None,
                 )
                 current = activity_by_user_id.get(user_id)
@@ -3709,6 +3747,7 @@ class AppStore:
                 now=normalized_now,
                 activity_context=context,
                 threshold_days=threshold_days,
+                include_live_terminal_activity=True,
             )
             if not summary.get("inactive_days_alert"):
                 continue
@@ -10700,6 +10739,24 @@ class AppStore:
             self._retire_live_backup_clone(clone, now=now, reason="Luồng chính đã được dừng thủ công.")
             stream.backup_stream_id = None
         self._save_state()
+        viewer_username = ""
+        if viewer_id:
+            try:
+                viewer_username = self._find_user(viewer_id).username
+            except KeyError:
+                viewer_username = ""
+        logger.info(
+            "live_stream_stopped stream_id=%s owner_user_id=%s viewer_role=%s viewer_id=%s "
+            "viewer_username=%s primary_worker_id=%s backup_worker_id=%s stopped_at=%s",
+            stream.id,
+            stream.owner_user_id,
+            viewer_role,
+            viewer_id or "",
+            viewer_username,
+            stream.primary_worker_id,
+            stream.backup_worker_id or "",
+            now.isoformat(),
+        )
         self._notify_live_telegram_chat_ids(
             self._live_stream_recipient_chat_ids(stream),
             self._live_stream_stopped_message(stream, now=now),

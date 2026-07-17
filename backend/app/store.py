@@ -3689,6 +3689,41 @@ class AppStore:
             "inactive_users": inactive_users,
         }
 
+    def _bot_row_inactivity_for_current_state(
+        self,
+        *,
+        worker: WorkerRecord,
+        assigned_users: list[UserSummary],
+        workspace: str,
+        now: datetime,
+        activity_context: dict[str, dict[tuple[str, str, str], datetime]],
+    ) -> dict[str, Any]:
+        snapshot = self._bot_row_inactivity_from_snapshot(workspace=workspace, worker_id=worker.id)
+        if not snapshot.get("inactive_days_alert"):
+            return snapshot
+
+        current = self._bot_row_inactivity_summary(
+            worker=worker,
+            assigned_users=assigned_users,
+            workspace=workspace,
+            now=now,
+            activity_context=activity_context,
+        )
+        if not current.get("inactive_days_alert"):
+            return self._empty_bot_row_inactivity_summary()
+
+        snapshot_usernames = {
+            str(item.get("username") or "").strip()
+            for item in snapshot.get("inactive_users") or []
+            if str(item.get("username") or "").strip()
+        }
+        current_usernames = {
+            str(item.get("username") or "").strip()
+            for item in current.get("inactive_users") or []
+            if str(item.get("username") or "").strip()
+        }
+        return current if snapshot_usernames != current_usernames else snapshot
+
     def get_inactive_bot_allocations(
         self,
         *,
@@ -12458,6 +12493,7 @@ class AppStore:
         rows: list[dict[str, Any]] = []
         now = self._now(trim=False)
         self._refresh_inactive_bot_table_snapshot_if_due(now=now)
+        inactivity_context = self._bot_row_inactivity_context()
         workspace_order = ["upload", "live"]
         operation_by_workspace: dict[str, dict[str, dict[str, Any]]] = {}
         operation_tasks_by_workspace: dict[str, list[dict[str, Any]]] = {}
@@ -12514,9 +12550,12 @@ class AppStore:
                     if is_live_workspace
                     else self._resolve_worker_display_name(worker.id)
                 )
-                inactivity_summary = self._bot_row_inactivity_from_snapshot(
+                inactivity_summary = self._bot_row_inactivity_for_current_state(
+                    worker=worker,
+                    assigned_users=assigned_users,
                     workspace=current_workspace_kind,
-                    worker_id=worker.id,
+                    now=now,
+                    activity_context=inactivity_context,
                 )
                 connection_profile = dict(self.worker_connection_profiles.get(worker.id) or {})
                 worker_local = str(getattr(worker, "local", None) or "").strip()

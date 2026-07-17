@@ -36,7 +36,7 @@
 - Route handler giu vai tro thin adapter; business state/contract tap trung o `store.py` + `schemas.py`.
 - UI user/admin duoc render tu backend nay, khong coi React/Vite la source chinh.
 - Khi doi worker/user/channel/job contract, phai dong bo store, schema, route va docs.
-- Inactive BOT alert/admin snapshot la BOT-level: chi canh bao khi tat ca assigned users tren worker deu idle qua nguong; live BOT co stream non-terminal/standby van tinh la dang hoat dong. Rieng Telegram, stream terminal bat dau dem idle tu moc ket thuc moi nhat thay vi ngay tao job cu.
+- Inactive BOT alert/admin snapshot la BOT-level: chi canh bao khi tat ca assigned users tren worker deu idle qua nguong; live BOT co stream non-terminal/standby van tinh la dang hoat dong. Telegram giu ket qua tai thoi diem gui; bang BOT phai bo stale positive neu assignment doi hoac BOT bat dau hoat dong sau snapshot.
 
 ## Known Pitfalls
 - `store.py` dang gom nhieu nghiep vu va la noi de phat sinh drift nhat.

@@ -433,6 +433,62 @@ class InactiveBotAlertTests(unittest.TestCase):
             [{"username": "active-user", "days": 13}, {"username": "demo-user", "days": 13}],
         )
 
+    def test_bot_rows_clear_snapshot_after_upload_assignments_are_removed(self) -> None:
+        old = self.now - timedelta(days=20)
+        self.store._now = lambda trim=True: self.now
+        self.store.workers = [make_worker("worker-reassigned", "manager-1", "manager-alpha", old)]
+        self.store.user_worker_links = [
+            {"id": 1, "user_id": "user-1", "worker_id": "worker-reassigned", "created_at": old},
+        ]
+
+        initial_rows = self.store._build_bot_rows()
+        self.assertEqual(initial_rows[0]["inactive_users"], [{"username": "demo-user", "days": 20}])
+
+        self.store.user_worker_links = []
+        current_rows = self.store._build_bot_rows()
+
+        self.assertEqual(current_rows[0]["inactive_users"], [])
+        self.assertEqual(current_rows[0]["inactive_days"], 0)
+        self.assertFalse(current_rows[0]["inactive_days_alert"])
+
+    def test_bot_rows_clear_live_snapshot_when_stream_starts_after_daily_snapshot(self) -> None:
+        old = self.now - timedelta(days=64)
+        stream_started_at = self.now + timedelta(hours=2)
+        self.store._now = lambda trim=True: self.now
+        self.store.live_workers = [
+            make_worker("live-worker-later-busy", "manager-1", "manager-alpha", old),
+        ]
+        self.store.live_user_worker_links = [
+            {
+                "id": 1,
+                "user_id": "user-1",
+                "worker_id": "live-worker-later-busy",
+                "live_role": "primary",
+                "created_at": old,
+            },
+        ]
+
+        initial_rows = self.store._build_bot_rows(workspace_mode="live")
+        self.assertEqual(initial_rows[0]["inactive_users"], [{"username": "demo-user", "days": 64}])
+
+        self.store.live_streams = [
+            make_stream(
+                "stream-started-later",
+                "user-1",
+                "live-worker-later-busy",
+                None,
+                stream_started_at,
+                status="waiting",
+                updated_at=stream_started_at,
+            )
+        ]
+        self.store._now = lambda trim=True: stream_started_at
+        current_rows = self.store._build_bot_rows(workspace_mode="live")
+
+        self.assertEqual(current_rows[0]["inactive_users"], [])
+        self.assertEqual(current_rows[0]["inactive_days"], 0)
+        self.assertFalse(current_rows[0]["inactive_days_alert"])
+
     def test_live_standby_stream_keeps_bot_active_for_inactive_alerts(self) -> None:
         old = self.now - timedelta(days=30)
         self.store.live_workers = [

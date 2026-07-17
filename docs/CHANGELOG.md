@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+### 2026-07-17 - Reconcile inactive BOT table snapshots with current state
+- Fixed: Admin BOT rows no longer keep showing inactive users from the 08:00 snapshot after those assignments are removed or replaced.
+- Fixed: A BOT that starts an upload/live stream after the daily snapshot immediately clears its stale inactive marker in the polled table.
+- Kept: Telegram messages already sent remain historical records of the 08:00 state; unchanged idle BOTs retain stable snapshot day counts.
+- Verification: Focused inactive-BOT suite passed `16` tests; backend compileall passed.
+- Impact/Risk: Low; control-plane table composition only, no worker state, job state, Telegram formatter, or FFmpeg path changed.
+
 ### 2026-07-16 - Correct terminal live inactivity alerts
 - Fixed: Daily inactive-BOT Telegram selection now starts live BOT inactivity from the latest terminal runtime time (`ended_at`, `stop_requested_at`, or `updated_at`) instead of immediately falling back to an old stream creation date.
 - Kept: Non-terminal/standby live streams remain excluded, upload BOT behavior and admin BOT inactivity snapshots are unchanged, and Telegram message content remains BOT-level without stop-actor details.

@@ -6566,9 +6566,31 @@ class AppStore:
         clone.updated_at = now
 
     def _sync_live_backup_policy(self, *, now: datetime) -> None:
-        visible_streams = [stream for stream in self.live_streams if self._is_visible_live_stream(stream)]
+        visible_streams: list[LiveStreamRecord] = []
+        streams_by_id: dict[str, LiveStreamRecord] = {}
+        backup_clones_by_parent_id: dict[str, LiveStreamRecord] = {}
+        for candidate in self.live_streams:
+            streams_by_id[candidate.id] = candidate
+            if self._is_runtime_backup_clone(candidate):
+                parent_stream_id = str(candidate.parent_stream_id or "").strip()
+                if parent_stream_id:
+                    backup_clones_by_parent_id.setdefault(parent_stream_id, candidate)
+            else:
+                visible_streams.append(candidate)
+
         for stream in visible_streams:
-            clone = self._find_live_backup_clone_optional(stream)
+            clone = None
+            backup_stream_id = str(stream.backup_stream_id or "").strip()
+            if backup_stream_id:
+                linked_clone = streams_by_id.get(backup_stream_id)
+                if (
+                    linked_clone is not None
+                    and self._is_runtime_backup_clone(linked_clone)
+                    and linked_clone.parent_stream_id == stream.id
+                ):
+                    clone = linked_clone
+            if clone is None:
+                clone = backup_clones_by_parent_id.get(stream.id)
             if self._live_stream_has_reached_schedule_end(stream, now=now):
                 stream_has_claim = self._live_stream_has_runtime_claim(stream)
                 clone_has_claim = clone is not None and self._live_stream_has_runtime_claim(clone)

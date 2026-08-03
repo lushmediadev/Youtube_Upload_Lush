@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -45,6 +46,16 @@ class TestableStore(AppStore):
     def _notify_telegram_chat_ids(self, chat_ids: list[str], message: str) -> bool:
         self.telegram_notifications.append((chat_ids, message))
         return True
+
+
+class CountingLiveStreamList(list[LiveStreamRecord]):
+    def __init__(self, values: list[LiveStreamRecord]) -> None:
+        super().__init__(values)
+        self.iteration_count = 0
+
+    def __iter__(self):
+        self.iteration_count += 1
+        return super().__iter__()
 
 
 def make_live_worker(worker_id: str) -> WorkerRecord:
@@ -111,6 +122,31 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
             {"id": 1, "user_id": "user-1", "worker_id": "live-worker-01", "threads": 1, "role": "primary"}
         ]
         self.store.live_streams = []
+
+    def test_backup_policy_indexes_runtime_clones_in_one_list_scan(self) -> None:
+        now = datetime(2026, 5, 11, 21, 0)
+        streams: list[LiveStreamRecord] = []
+        for index in range(200):
+            primary = make_stream(status="ended", lease_expires_at=now)
+            primary.id = f"live-primary-{index}"
+            primary.claimed_by_worker_id = None
+            primary.claimed_by_role = None
+            primary.backup_stream_id = None
+
+            clone = deepcopy(primary)
+            clone.id = f"live-backup-{index}"
+            clone.is_runtime_clone = True
+            clone.runtime_role = "backup"
+            clone.parent_stream_id = primary.id
+            clone.status = "stopped"
+            streams.extend((primary, clone))
+
+        counted_streams = CountingLiveStreamList(streams)
+        self.store.live_streams = counted_streams
+
+        self.store._sync_live_backup_policy(now=now)
+
+        self.assertLessEqual(counted_streams.iteration_count, 3)
 
     def test_runtime_state_refreshes_claimed_stream_lease(self) -> None:
         expired_lease = datetime(2000, 1, 1)

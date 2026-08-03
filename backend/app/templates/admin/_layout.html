@@ -759,6 +759,14 @@
         color: rgb(15 23 42);
       }
 
+      .sortable-button.is-static {
+        cursor: default;
+      }
+
+      .sortable-button.is-static:hover {
+        color: rgb(71 85 105);
+      }
+
       .sortable-button.is-end {
         justify-content: flex-end;
       }
@@ -1696,7 +1704,7 @@
       }
     </script>
     <script defer src="{{ request.app.url_path_for('static', path='js/mobile_shell.js') }}"></script>
-    <script defer src="{{ request.app.url_path_for('static', path='js/admin_tables.js') }}?v=20260803-server-history"></script>
+    <script defer src="{{ request.app.url_path_for('static', path='js/admin_tables.js') }}?v=20260803-server-history-header"></script>
     <script defer src="{{ request.app.url_path_for('static', path='js/admin_navigation.js') }}?v=20260624-document-prefetch"></script>
     {% block page_scripts %}{% endblock %}
 </body>

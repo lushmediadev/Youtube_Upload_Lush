@@ -222,6 +222,18 @@ function initAdminTables() {
     );
   }
 
+  function buildStaticHeaderMarkup(label, alignEnd) {
+    return (
+      '<span class="sortable-button is-static' +
+      (alignEnd ? " is-end" : "") +
+      '">' +
+      '  <span class="sortable-button-label">' +
+      label +
+      "</span>" +
+      "</span>"
+    );
+  }
+
   function requestDeletePageConfirmation(count, requiredPass) {
     const pass = String(requiredPass || "");
     if (!pass) {
@@ -480,6 +492,11 @@ function initAdminTables() {
 
     function refreshHeaderButtons() {
       if (isServerPaginated) {
+        headers.forEach(function (headerCell) {
+          const label = headerCell.dataset.adminSortLabel || "";
+          const alignEnd = headerCell.classList.contains("text-right");
+          headerCell.innerHTML = buildStaticHeaderMarkup(label, alignEnd);
+        });
         return;
       }
       headers.forEach(function (headerCell, index) {

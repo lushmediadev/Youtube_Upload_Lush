@@ -156,3 +156,5 @@ def test_admin_history_tables_use_server_side_pagination_and_search() -> None:
     assert 'table.dataset.adminServerPagination === "true"' in table_runtime
     assert 'url.searchParams.set("page", String(page))' in table_runtime
     assert 'url.searchParams.set("q", keyword)' in table_runtime
+    assert "buildStaticHeaderMarkup" in table_runtime
+    assert "headerCell.innerHTML = buildStaticHeaderMarkup(label, alignEnd)" in table_runtime

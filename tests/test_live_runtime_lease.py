@@ -148,6 +148,34 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
 
         self.assertLessEqual(counted_streams.iteration_count, 3)
 
+    def test_backup_policy_does_not_refinalize_settled_terminal_streams(self) -> None:
+        now = datetime(2026, 5, 12, 21, 0)
+        ended_at = now - timedelta(days=10)
+        primary = make_stream(
+            status="ended",
+            lease_expires_at=ended_at,
+            end_time_live=ended_at,
+        )
+        primary.claimed_by_worker_id = None
+        primary.claimed_by_role = None
+        primary.claimed_at = None
+        primary.backup_stream_id = None
+        primary.ended_at = ended_at
+        primary.updated_at = ended_at
+
+        clone = deepcopy(primary)
+        clone.id = "live-backup"
+        clone.is_runtime_clone = True
+        clone.runtime_role = "backup"
+        clone.parent_stream_id = primary.id
+        clone.status = "stopped"
+        self.store.live_streams = [primary, clone]
+
+        self.store._sync_live_backup_policy(now=now)
+
+        self.assertEqual(primary.ended_at, ended_at)
+        self.assertEqual(primary.updated_at, ended_at)
+
     def test_runtime_state_refreshes_claimed_stream_lease(self) -> None:
         expired_lease = datetime(2000, 1, 1)
         self.store.live_streams = [make_stream(status="preparing", lease_expires_at=expired_lease)]

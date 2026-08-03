@@ -6591,6 +6591,22 @@ class AppStore:
                     clone = linked_clone
             if clone is None:
                 clone = backup_clones_by_parent_id.get(stream.id)
+            stream_status = str(stream.status or "").strip().lower()
+            clone_status = str(clone.status or "").strip().lower() if clone is not None else ""
+            terminal_statuses = {"stopped", "ended", "error"}
+            if (
+                stream_status in terminal_statuses
+                and not self._live_stream_has_runtime_claim(stream)
+                and not backup_stream_id
+                and (
+                    clone is None
+                    or (
+                        clone_status in terminal_statuses
+                        and not self._live_stream_has_runtime_claim(clone)
+                    )
+                )
+            ):
+                continue
             if self._live_stream_has_reached_schedule_end(stream, now=now):
                 stream_has_claim = self._live_stream_has_runtime_claim(stream)
                 clone_has_claim = clone is not None and self._live_stream_has_runtime_claim(clone)

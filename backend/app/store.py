@@ -10724,7 +10724,7 @@ class AppStore:
         if effective_runtime.status == "streaming":
             raise ValueError("Luồng đang live. Hãy dùng Dừng trước khi xóa.")
         now = self._now(trim=False)
-        clone = existing_clone or self._find_live_backup_clone_optional(stream)
+        clone = self._find_live_backup_clone_optional(stream)
         if clone is not None:
             self._retire_live_backup_clone(clone, now=now, reason="Luồng chính đã bị xoá.")
             self._delete_live_preview_file(clone)

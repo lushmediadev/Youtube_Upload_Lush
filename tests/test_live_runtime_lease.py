@@ -247,6 +247,20 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
 
         self.assertEqual(counted_streams.iteration_count, 1)
 
+    def test_delete_stopped_live_stream_does_not_require_runtime_clone_argument(self) -> None:
+        stream = make_stream(status="stopped", lease_expires_at=datetime(2000, 1, 1))
+        stream.claimed_by_worker_id = None
+        stream.claimed_by_role = None
+        self.store.live_streams = [stream]
+
+        self.store.delete_live_stream(
+            stream.id,
+            viewer_role="admin",
+            viewer_id="user-1",
+        )
+
+        self.assertEqual(self.store.live_streams, [])
+
     def test_disconnected_progress_keeps_worker_claim_and_refreshes_lease(self) -> None:
         expired_lease = datetime(2000, 1, 1)
         self.store.live_streams = [make_stream(status="streaming", lease_expires_at=expired_lease)]

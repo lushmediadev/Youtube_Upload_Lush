@@ -296,6 +296,24 @@ class AppStore:
         return max(10, value)
 
     @staticmethod
+    def _completed_history_retention_days() -> int:
+        raw_value = str(os.getenv("CONTROL_PLANE_COMPLETED_HISTORY_RETENTION_DAYS", "30")).strip()
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            value = 30
+        return max(1, value)
+
+    @staticmethod
+    def _completed_history_cleanup_interval_seconds() -> int:
+        raw_value = str(os.getenv("CONTROL_PLANE_COMPLETED_HISTORY_CLEANUP_INTERVAL_SECONDS", "86400")).strip()
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            value = 86400
+        return max(3600, value)
+
+    @staticmethod
     def _worker_job_lease_seconds() -> int:
         raw_value = str(os.getenv("WORKER_JOB_LEASE_SECONDS", "90")).strip()
         try:
@@ -421,6 +439,7 @@ class AppStore:
         self._worker_state_lock = RLock()
         self._monitor_stop_event = Event()
         self._monitor_thread: Thread | None = None
+        self._completed_history_cleanup_last_run_at: datetime | None = None
         self.inactive_bot_alert_last_sent_on: str | None = None
         self.inactive_bot_alert_last_attempted_on: str | None = None
         self.inactive_bot_table_snapshot_date: str | None = None
@@ -2166,6 +2185,115 @@ class AppStore:
                 ),
             )
 
+    def _live_stream_is_genuinely_ended_for_retention(
+        self,
+        stream: LiveStreamRecord,
+        *,
+        clone: LiveStreamRecord | None,
+        cutoff: datetime,
+    ) -> bool:
+        if self._is_runtime_backup_clone(stream):
+            return False
+        if str(stream.status or "").strip().lower() != "ended":
+            return False
+        if stream.ended_at is None or stream.is_live_now:
+            return False
+        if self._live_stream_has_runtime_claim(stream) or stream.lease_expires_at is not None:
+            return False
+        terminal_anchor = stream.end_time_live if stream.end_time_live is not None else stream.ended_at
+        if terminal_anchor > cutoff:
+            return False
+        if clone is None:
+            return True
+        clone_status = str(clone.status or "").strip().lower()
+        if clone_status not in {"stopped", "ended", "error"}:
+            return False
+        if clone.is_live_now or self._live_stream_has_runtime_claim(clone) or clone.lease_expires_at is not None:
+            return False
+        return True
+
+    def _cleanup_completed_history(self, *, now: datetime) -> dict[str, int]:
+        cutoff = now - timedelta(days=self._completed_history_retention_days())
+        expired_jobs = [
+            job
+            for job in self.jobs
+            if str(job.status or "").strip().lower() == "completed"
+            and job.completed_at is not None
+            and job.completed_at <= cutoff
+        ]
+        expired_job_ids = {job.id for job in expired_jobs}
+        if expired_job_ids:
+            self.jobs = [job for job in self.jobs if job.id not in expired_job_ids]
+            for job in expired_jobs:
+                self._purge_job_artifacts(job, exclude_job_id=job.id)
+
+        streams_by_id = {stream.id: stream for stream in self.live_streams}
+        clones_by_parent_id: dict[str, LiveStreamRecord] = {}
+        for candidate in self.live_streams:
+            if not self._is_runtime_backup_clone(candidate):
+                continue
+            parent_stream_id = str(candidate.parent_stream_id or "").strip()
+            if parent_stream_id:
+                clones_by_parent_id.setdefault(parent_stream_id, candidate)
+
+        expired_primary_ids: set[str] = set()
+        expired_clone_ids: set[str] = set()
+        expired_live_records: list[LiveStreamRecord] = []
+        for stream in self.live_streams:
+            if self._is_runtime_backup_clone(stream):
+                continue
+            clone = None
+            backup_stream_id = str(stream.backup_stream_id or "").strip()
+            if backup_stream_id:
+                linked_clone = streams_by_id.get(backup_stream_id)
+                if (
+                    linked_clone is not None
+                    and self._is_runtime_backup_clone(linked_clone)
+                    and linked_clone.parent_stream_id == stream.id
+                ):
+                    clone = linked_clone
+            if clone is None:
+                clone = clones_by_parent_id.get(stream.id)
+            if not self._live_stream_is_genuinely_ended_for_retention(stream, clone=clone, cutoff=cutoff):
+                continue
+            expired_primary_ids.add(stream.id)
+            expired_live_records.append(stream)
+            if clone is not None:
+                expired_clone_ids.add(clone.id)
+                expired_live_records.append(clone)
+
+        expired_live_ids = expired_primary_ids | expired_clone_ids
+        if expired_live_ids:
+            self.live_streams = [stream for stream in self.live_streams if stream.id not in expired_live_ids]
+            for stream in expired_live_records:
+                self._delete_live_preview_file(stream)
+
+        result = {
+            "upload_jobs": len(expired_job_ids),
+            "live_streams": len(expired_primary_ids),
+            "live_clones": len(expired_clone_ids),
+        }
+        if any(result.values()):
+            self._save_state()
+        return result
+
+    def _reconcile_completed_history_retention(self, *, now: datetime) -> dict[str, int]:
+        last_run_at = self._completed_history_cleanup_last_run_at
+        cleanup_interval = timedelta(seconds=self._completed_history_cleanup_interval_seconds())
+        if last_run_at is not None and last_run_at + cleanup_interval > now:
+            return {"upload_jobs": 0, "live_streams": 0, "live_clones": 0}
+        result = self._cleanup_completed_history(now=now)
+        self._completed_history_cleanup_last_run_at = now
+        if any(result.values()):
+            logger.info(
+                "completed_history_cleanup retention_days=%s upload_jobs=%s live_streams=%s live_clones=%s",
+                self._completed_history_retention_days(),
+                result["upload_jobs"],
+                result["live_streams"],
+                result["live_clones"],
+            )
+        return result
+
     def start_background_services(self) -> None:
         with self._worker_state_lock:
             if self._monitor_thread and self._monitor_thread.is_alive():
@@ -2199,6 +2327,7 @@ class AppStore:
                     _, upload_interruption_notifications = self._reconcile_expired_worker_jobs(now=now)
                     self._reconcile_expired_live_streams(now=now)
                     self._reconcile_live_worker_connectivity(now=now)
+                    self._reconcile_completed_history_retention(now=now)
                 for chat_ids, message in upload_interruption_notifications:
                     self._notify_live_telegram_chat_ids(chat_ids, message)
                 self._reconcile_inactive_bot_daily_alert(now=now)
@@ -6468,7 +6597,7 @@ class AppStore:
         if backup_worker is None or backup_worker.id == stream.primary_worker_id:
             return None
 
-        clone = self._find_live_backup_clone_optional(stream)
+        clone = existing_clone or self._find_live_backup_clone_optional(stream)
         clone_name = f"{stream.stream_name}_{'backup11h' if stream.end_time_live is not None else 'backup247'}"
         if clone is None:
             clone = LiveStreamRecord(
@@ -9153,7 +9282,7 @@ class AppStore:
     def _natural_sort_text(self, value: str | None) -> str:
         normalized = unicodedata.normalize("NFKD", str(value or "").strip())
         ascii_folded = "".join(char for char in normalized if not unicodedata.combining(char))
-        return ascii_folded.casefold()
+        return ascii_folded.replace("Đ", "D").replace("đ", "d").casefold()
 
     def _channel_user_count(self, channel_id: str) -> int:
         return len([link for link in self.channel_user_links if link["channel_id"] == channel_id])
@@ -11081,9 +11210,14 @@ class AppStore:
             rows.append({"index": index, **self._live_stream_display_row(stream)})
         return rows
 
-    def _build_live_render_rows(self, streams: list[LiveStreamRecord]) -> list[dict[str, Any]]:
+    def _build_live_render_rows(
+        self,
+        streams: list[LiveStreamRecord],
+        *,
+        start_index: int = 1,
+    ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
-        for index, stream in enumerate(streams, start=1):
+        for index, stream in enumerate(streams, start=start_index):
             rows.append({"index": index, **self._live_stream_display_row(stream)})
         return rows
 
@@ -15059,6 +15193,71 @@ class AppStore:
             )
         return rows
 
+    @staticmethod
+    def _admin_history_page_size() -> int:
+        return 20
+
+    def _paginate_admin_history(self, items: list[Any], *, page: int) -> tuple[list[Any], dict[str, Any]]:
+        page_size = self._admin_history_page_size()
+        total = len(items)
+        total_pages = max((total + page_size - 1) // page_size, 1)
+        current_page = min(max(int(page or 1), 1), total_pages)
+        start_offset = (current_page - 1) * page_size
+        page_items = items[start_offset : start_offset + page_size]
+        page_from = start_offset + 1 if page_items else 0
+        page_to = start_offset + len(page_items) if page_items else 0
+        return page_items, {
+            "page": current_page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": total_pages,
+            "from": page_from,
+            "to": page_to,
+        }
+
+    def _upload_job_matches_history_query(self, job: RenderJobRecord, query: str) -> bool:
+        normalized_query = self._natural_sort_text(query)
+        if not normalized_query:
+            return True
+        searchable_values = [
+            job.id,
+            job.title,
+            job.channel_id,
+            job.channel_name,
+            job.worker_name,
+            job.manager_name,
+            self._job_username(job),
+            job.status,
+            job.status_message,
+            job.error_message,
+            job.output_url,
+        ]
+        searchable_values.extend(asset.url or asset.file_name for asset in job.assets)
+        return any(normalized_query in self._natural_sort_text(value) for value in searchable_values)
+
+    def _live_stream_matches_history_query(self, stream: LiveStreamRecord, query: str) -> bool:
+        normalized_query = self._natural_sort_text(query)
+        if not normalized_query:
+            return True
+        searchable_values = [
+            stream.id,
+            stream.stream_name,
+            stream.stream_key,
+            stream.owner_username,
+            stream.owner_display_name,
+            stream.manager_name,
+            stream.primary_worker_id,
+            stream.primary_worker_name,
+            stream.backup_worker_id,
+            stream.backup_worker_name,
+            stream.status,
+            stream.log_label,
+            stream.status_message,
+            stream.error_message,
+            stream.live_label,
+        ]
+        return any(normalized_query in self._natural_sort_text(value) for value in searchable_values)
+
     def get_admin_render_index_context(
         self,
         *,
@@ -15070,6 +15269,8 @@ class AppStore:
         viewer_id: str | None = None,
         notice: str | None = None,
         notice_level: str = "success",
+        page: int = 1,
+        query: str = "",
     ) -> dict[str, Any]:
         is_live_workspace = workspace_mode == "live"
         context = self._admin_shell_context(
@@ -15098,7 +15299,19 @@ class AppStore:
                 manager_ids=manager_ids,
                 owner_user_id=normalized_user_id,
             )
-            render_rows = self._build_live_render_rows(scoped_streams)
+            normalized_query = str(query or "").strip()[:200]
+            if normalized_query:
+                scoped_streams = [
+                    stream
+                    for stream in scoped_streams
+                    if self._live_stream_matches_history_query(stream, normalized_query)
+                ]
+            page_streams, history_pagination = self._paginate_admin_history(scoped_streams, page=page)
+            history_pagination["query"] = normalized_query
+            render_rows = self._build_live_render_rows(
+                page_streams,
+                start_index=history_pagination["from"] or 1,
+            )
 
             context.update(
                 {
@@ -15110,6 +15323,7 @@ class AppStore:
                         user_id=normalized_user_id,
                     ),
                     "renders": render_rows,
+                    "history_pagination": history_pagination,
                     "render_list_href": "/admin/livestream/index",
                     "render_heading": f"DS Live của {selected_user_name}" if selected_user_name else "Danh sách live stream",
                     "render_note": (
@@ -15121,7 +15335,8 @@ class AppStore:
                     "selected_user_id": normalized_user_id or "",
                     "selected_user_name": selected_user_name,
                     "render_summary": (
-                        f"Hiển thị 1 đến {len(render_rows)} trong {len(render_rows)} kết quả"
+                        f"Hiển thị {history_pagination['from']} đến {history_pagination['to']} "
+                        f"trong {history_pagination['total']} kết quả"
                         if render_rows
                         else "Chưa có live stream nào trong danh sách"
                     ),
@@ -15144,8 +15359,15 @@ class AppStore:
             filtered_channel = {"id": channel.id, "name": channel.name, "channel_id": channel.channel_id}
             job_source = [job for job in job_source if job.channel_id == channel.id]
 
+        normalized_query = str(query or "").strip()[:200]
+        if normalized_query:
+            job_source = [job for job in job_source if self._upload_job_matches_history_query(job, normalized_query)]
+        sorted_jobs = sorted(job_source, key=lambda item: item.created_at, reverse=True)
+        page_jobs, history_pagination = self._paginate_admin_history(sorted_jobs, page=page)
+        history_pagination["query"] = normalized_query
+
         render_rows: list[dict[str, Any]] = []
-        for index, job in enumerate(sorted(job_source, key=lambda item: item.created_at, reverse=True), start=1):
+        for index, job in enumerate(page_jobs, start=history_pagination["from"] or 1):
             status_label, status_class = self._render_status_badge(job)
             primary_asset = next((asset for asset in job.assets if asset.url or asset.file_name), None)
             channel = self._find_channel_optional(job.channel_id)
@@ -15178,6 +15400,7 @@ class AppStore:
             {
                 "template": "admin/render_index.html",
                 "renders": render_rows,
+                "history_pagination": history_pagination,
                 "filtered_channel": filtered_channel,
                 "render_list_href": "/admin/upload/index",
                 "render_channel_href": "/admin/upload/channel",

@@ -112,7 +112,17 @@
         </div>
 
         <div class="table-shell">
-            <table class="admin-table admin-table-render-list" data-admin-list-table="render-index">
+            <table
+                class="admin-table admin-table-render-list"
+                data-admin-list-table="render-index"
+                data-admin-server-pagination="true"
+                data-current-page="{{ dashboard.history_pagination.page }}"
+                data-total-pages="{{ dashboard.history_pagination.total_pages }}"
+                data-total-items="{{ dashboard.history_pagination.total }}"
+                data-page-from="{{ dashboard.history_pagination.from }}"
+                data-page-to="{{ dashboard.history_pagination.to }}"
+                data-search-query="{{ dashboard.history_pagination.query | e }}"
+            >
                 <colgroup>
                     <col class="render-col-stt">
                     <col class="render-col-job">

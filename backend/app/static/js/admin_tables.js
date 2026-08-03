@@ -19,6 +19,8 @@ function initAdminTables() {
 
   function normalizeText(value) {
     return String(value || "")
+      .replace(/Đ/g, "D")
+      .replace(/đ/g, "d")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase()
@@ -313,6 +315,7 @@ function initAdminTables() {
     const panel = tableShell.parentElement;
     let rows = Array.from(tbody.querySelectorAll(":scope > tr"));
     const headers = table.tHead ? Array.from(table.tHead.rows[0].cells) : [];
+    const isServerPaginated = table.dataset.adminServerPagination === "true";
     const pageSize = Math.max(parseInt(table.dataset.pageSize || "10", 10) || 10, 1);
     const totalColumns = headers.length || 1;
     const tableStateStorageKey =
@@ -320,7 +323,9 @@ function initAdminTables() {
       window.location.pathname +
       ":" +
       (table.dataset.adminListTable || table.id || "default");
-    let currentPage = 1;
+    let currentPage = isServerPaginated
+      ? Math.max(parseInt(table.dataset.currentPage || "1", 10) || 1, 1)
+      : 1;
     let sortIndex = null;
     let sortDirection = "asc";
 
@@ -410,7 +415,11 @@ function initAdminTables() {
     const summaryNode = footer.querySelector("[data-admin-table-summary]");
     const paginationNode = footer.querySelector("[data-admin-table-pagination]");
     const deletePageButton = footer.querySelector("[data-admin-table-delete-page]");
-    let emptyRow = null;
+    let emptyRow = tbody.querySelector(":scope > tr[data-admin-table-empty]");
+
+    if (searchInput && isServerPaginated) {
+      searchInput.value = table.dataset.searchQuery || "";
+    }
 
     function persistTableUiState() {
       try {
@@ -441,6 +450,10 @@ function initAdminTables() {
         if (!payload || payload.path !== window.location.pathname) {
           return;
         }
+        if (isServerPaginated) {
+          restoreWindowScroll(payload.scrollY);
+          return;
+        }
         if (searchInput && typeof payload.search === "string") {
           searchInput.value = payload.search;
         }
@@ -466,6 +479,9 @@ function initAdminTables() {
     });
 
     function refreshHeaderButtons() {
+      if (isServerPaginated) {
+        return;
+      }
       headers.forEach(function (headerCell, index) {
         const label = headerCell.dataset.adminSortLabel || "";
         const isActive = sortIndex === index;
@@ -559,6 +575,11 @@ function initAdminTables() {
     }
 
     function filteredRows() {
+      if (isServerPaginated) {
+        return rows.filter(function (row) {
+          return !row.hasAttribute("data-admin-table-empty");
+        });
+      }
       const keyword = normalizeText(searchInput ? searchInput.value : "");
       let result = rows.filter(function (row) {
         if (row.hasAttribute("data-admin-table-empty")) {
@@ -580,6 +601,9 @@ function initAdminTables() {
     }
 
     function currentPageRows(items) {
+      if (isServerPaginated) {
+        return items;
+      }
       const totalPages = Math.max(Math.ceil(items.length / pageSize), 1);
       currentPage = clampPage(currentPage, totalPages);
       const startIndex = (currentPage - 1) * pageSize;
@@ -613,6 +637,12 @@ function initAdminTables() {
         button.disabled = !!disabled;
         if (!disabled && page) {
           button.addEventListener("click", function () {
+            if (isServerPaginated) {
+              const url = new URL(window.location.href);
+              url.searchParams.set("page", String(page));
+              window.location.assign(url.toString());
+              return;
+            }
             currentPage = page;
             applyTableState();
           });
@@ -671,12 +701,25 @@ function initAdminTables() {
 
     function applyTableState() {
       const items = filteredRows();
-      const total = items.length;
-      const totalPages = Math.max(Math.ceil(total / pageSize), 1);
+      const total = isServerPaginated
+        ? Math.max(parseInt(table.dataset.totalItems || "0", 10) || 0, 0)
+        : items.length;
+      const totalPages = isServerPaginated
+        ? Math.max(parseInt(table.dataset.totalPages || "1", 10) || 1, 1)
+        : Math.max(Math.ceil(total / pageSize), 1);
       const pageRows = currentPageRows(items);
+      currentPage = clampPage(currentPage, totalPages);
       const startIndex = total ? (currentPage - 1) * pageSize : 0;
-      const from = total ? startIndex + 1 : 0;
-      const to = total ? startIndex + pageRows.length : 0;
+      const from = isServerPaginated
+        ? Math.max(parseInt(table.dataset.pageFrom || "0", 10) || 0, 0)
+        : total
+          ? startIndex + 1
+          : 0;
+      const to = isServerPaginated
+        ? Math.max(parseInt(table.dataset.pageTo || "0", 10) || 0, 0)
+        : total
+          ? startIndex + pageRows.length
+          : 0;
 
       const orderedRows = pageRows.concat(
         rows.filter(function (row) {
@@ -705,10 +748,28 @@ function initAdminTables() {
     }
 
     if (searchInput) {
-      searchInput.addEventListener("input", function () {
-        currentPage = 1;
-        applyTableState();
-      });
+      if (isServerPaginated) {
+        let searchTimer = null;
+        searchInput.addEventListener("input", function () {
+          window.clearTimeout(searchTimer);
+          searchTimer = window.setTimeout(function () {
+            const keyword = String(searchInput.value || "").trim();
+            const url = new URL(window.location.href);
+            if (keyword) {
+              url.searchParams.set("q", keyword);
+            } else {
+              url.searchParams.delete("q");
+            }
+            url.searchParams.set("page", "1");
+            window.location.assign(url.toString());
+          }, 350);
+        });
+      } else {
+        searchInput.addEventListener("input", function () {
+          currentPage = 1;
+          applyTableState();
+        });
+      }
     }
 
     if (deletePageButton) {

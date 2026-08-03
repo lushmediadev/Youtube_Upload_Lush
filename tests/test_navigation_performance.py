@@ -22,6 +22,9 @@ LUCIDE_APP_VENDOR = (
 LUCIDE_ADMIN_INSTANT_VENDOR = (
     ROOT / "backend" / "app" / "static" / "vendor" / "lucide-admin-instant.min.js"
 )
+ADMIN_TABLES_JS = ROOT / "backend" / "app" / "static" / "js" / "admin_tables.js"
+ADMIN_RENDER_INDEX = ROOT / "backend" / "app" / "templates" / "admin" / "render_index.html"
+ADMIN_LIVE_RENDER_INDEX = ROOT / "backend" / "app" / "templates" / "admin" / "live_render_index.html"
 
 
 def test_sidebar_icons_are_server_rendered_in_all_role_shells() -> None:
@@ -137,3 +140,19 @@ def test_polling_reconciles_rows_instead_of_rebuilding_whole_tables() -> None:
         "liveStreamTableBody.innerHTML = liveRows.map((stream) => buildLiveRowMarkup(stream)).join('')"
         not in user_live_dashboard
     )
+
+
+def test_admin_history_tables_use_server_side_pagination_and_search() -> None:
+    upload_template = ADMIN_RENDER_INDEX.read_text(encoding="utf-8")
+    live_template = ADMIN_LIVE_RENDER_INDEX.read_text(encoding="utf-8")
+    table_runtime = ADMIN_TABLES_JS.read_text(encoding="utf-8")
+
+    for template in (upload_template, live_template):
+        assert 'data-admin-server-pagination="true"' in template
+        assert 'data-current-page="{{ dashboard.history_pagination.page }}"' in template
+        assert 'data-total-pages="{{ dashboard.history_pagination.total_pages }}"' in template
+        assert 'data-search-query="{{ dashboard.history_pagination.query | e }}"' in template
+
+    assert 'table.dataset.adminServerPagination === "true"' in table_runtime
+    assert 'url.searchParams.set("page", String(page))' in table_runtime
+    assert 'url.searchParams.set("q", keyword)' in table_runtime

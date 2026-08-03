@@ -39,7 +39,17 @@
         </div>
 
         <div class="table-shell">
-            <table class="admin-table live-render-table" data-admin-list-table>
+            <table
+                class="admin-table live-render-table"
+                data-admin-list-table="live-render-index"
+                data-admin-server-pagination="true"
+                data-current-page="{{ dashboard.history_pagination.page }}"
+                data-total-pages="{{ dashboard.history_pagination.total_pages }}"
+                data-total-items="{{ dashboard.history_pagination.total }}"
+                data-page-from="{{ dashboard.history_pagination.from }}"
+                data-page-to="{{ dashboard.history_pagination.to }}"
+                data-search-query="{{ dashboard.history_pagination.query | e }}"
+            >
                 <thead>
                     <tr>
                         <th class="live-render-col-stt">STT</th>
@@ -153,7 +163,7 @@
                     </tr>
                     {% endfor %}
                     {% else %}
-                    <tr>
+                    <tr data-admin-table-empty="true">
                         <td colspan="9" class="admin-table-empty">Ch&#432;a c&oacute; live stream n&agrave;o trong danh s&aacute;ch.</td>
                     </tr>
                     {% endif %}

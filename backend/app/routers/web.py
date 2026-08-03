@@ -2484,6 +2484,8 @@ async def admin_channel_delete_ajax(request: Request, id: str | None = None):
 async def admin_upload_index(
     request: Request,
     manager_ids: list[str] = Query(default=[]),
+    page: int = Query(default=1, ge=1),
+    q: str = "",
     notice: str | None = None,
     notice_level: str = "success",
 ):
@@ -2498,6 +2500,8 @@ async def admin_upload_index(
             notice=notice,
             notice_level=notice_level,
             workspace_mode="upload",
+            page=page,
+            query=q,
         ),
     )
 
@@ -2508,6 +2512,8 @@ async def admin_upload_of_channel(
     channelId: str,
     channelName: str | None = None,
     manager_ids: list[str] = Query(default=[]),
+    page: int = Query(default=1, ge=1),
+    q: str = "",
     notice: str | None = None,
     notice_level: str = "success",
 ):
@@ -2524,6 +2530,8 @@ async def admin_upload_of_channel(
             notice=notice,
             notice_level=notice_level,
             workspace_mode="upload",
+            page=page,
+            query=q,
         ),
     )
 
@@ -2554,6 +2562,8 @@ async def admin_livestream_index(
     request: Request,
     manager_ids: list[str] = Query(default=[]),
     userId: str | None = None,
+    page: int = Query(default=1, ge=1),
+    q: str = "",
     notice: str | None = None,
     notice_level: str = "success",
 ):
@@ -2572,6 +2582,8 @@ async def admin_livestream_index(
             notice=notice,
             notice_level=notice_level,
             workspace_mode="live",
+            page=page,
+            query=q,
         ),
     )
 

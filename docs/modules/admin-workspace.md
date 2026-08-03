@@ -30,6 +30,7 @@
 - Admin/user van phai chung design system; flow BOT owner/assignment hien tai di truc tiep qua `worker_index.html`, khong duy tri them mot screen dieu phoi tach rieng.
 - Role assignment, notice/toast, filter/search pattern phai dong bo giua cac trang admin.
 - Multi-VPS assignment cho user la behavior hop le; khong duoc vo tinh overwrite ve 1 VPS.
+- Danh sach upload/live history phai tim kiem va phan trang tren server (20 dong/trang); khong render toan bo lich su vao DOM roi moi loc o client.
 
 ## Known Pitfalls
 - Cac route web BOT cu de lai shim redirect de tranh hidden write surface; khi them route moi phai doi chieu voi flow canon `/admin/ManagerBOT/index`.
@@ -42,3 +43,4 @@
 - `DEC-002`
 - `DEC-005`
 - `DEC-008`
+- `DEC-056`

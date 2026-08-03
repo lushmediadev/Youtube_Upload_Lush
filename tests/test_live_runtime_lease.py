@@ -4,6 +4,7 @@ import unittest
 from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("APP_ENABLE_LIVE_DEMO_SEED", "0")
 
@@ -260,6 +261,34 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         )
 
         self.assertEqual(self.store.live_streams, [])
+
+    def test_upsert_backup_clone_uses_supplied_clone_without_rescanning_history(self) -> None:
+        now = datetime.now()
+        primary = make_stream(status="scheduled", lease_expires_at=datetime(2000, 1, 1))
+        primary.backup_worker_id = "live-worker-backup"
+        clone = deepcopy(primary)
+        clone.id = "live-backup"
+        clone.runtime_role = "backup"
+        clone.is_runtime_clone = True
+        clone.parent_stream_id = primary.id
+        clone.primary_worker_id = "live-worker-backup"
+        clone.claimed_by_worker_id = None
+        clone.lease_expires_at = None
+        self.store.live_workers.append(make_live_worker("live-worker-backup"))
+        self.store.live_streams = [primary, clone]
+
+        with patch.object(
+            self.store,
+            "_find_live_backup_clone_optional",
+            side_effect=AssertionError("unexpected full live history scan"),
+        ):
+            resolved = self.store._upsert_live_backup_clone(
+                primary,
+                now=now,
+                existing_clone=clone,
+            )
+
+        self.assertIs(resolved, clone)
 
     def test_disconnected_progress_keeps_worker_claim_and_refreshes_lease(self) -> None:
         expired_lease = datetime(2000, 1, 1)

@@ -60,6 +60,7 @@
 | DEC-053 | Neu primary `24/7` co backup va `Mất telemetry` keo dai qua `LIVE_TELEMETRY_FAILOVER_SECONDS` thi control-plane moi escalates sang failover backup va gui ops Telegram; default hien tai la 120s de backup vao som hon, con live co `EndTimeLive` khong dung telemetry failover de bo primary vi backup da chay song song | Active | live runtime + failover resilience | High |
 | DEC-054 | RTMP retry cua live worker uu tien reconnect gan nhu tuc thi sau FFmpeg reset; Telegram live chi nen bao start/end, khong bao disconnect/backup-activated cho cac retry transient | Active | live runtime + alert dedupe | High |
 | DEC-055 | Live `24/7` primary co backup phai bao health cua FFmpeg/RTMP ve control-plane; RTMP unhealthy dung nguong 30s de backup stream, con disconnected/telemetry fallback giu nguong dai hon 120s va primary phai hoi phuc on dinh truoc khi backup ve standby | Active | live runtime + hot-standby failover | High |
+| DEC-056 | Lich su upload/live hoan tat duoc phan trang server-side va dọn sau 30 ngay; live chi duoc dọn khi primary `ended` that, khong con runtime claim/lease va backup clone cung terminal | Active | backend history + admin UI | High |
 
 ## Notes
 - `docs/DECISIONS.md` van giu full history va ly do chi tiet.

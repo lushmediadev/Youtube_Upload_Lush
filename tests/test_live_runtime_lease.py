@@ -176,6 +176,43 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         self.assertEqual(primary.ended_at, ended_at)
         self.assertEqual(primary.updated_at, ended_at)
 
+    def test_primary_progress_does_not_rewrite_existing_backup_clone(self) -> None:
+        now = datetime(2026, 5, 11, 21, 0)
+        clone_updated_at = now - timedelta(days=1)
+        backup_worker = make_live_worker("live-worker-02")
+        self.store.live_workers.append(backup_worker)
+
+        primary = make_stream(status="streaming", lease_expires_at=now + timedelta(minutes=1))
+        primary.backup_worker_id = backup_worker.id
+        primary.backup_worker_name = backup_worker.name
+        primary.backup_stream_id = "live-backup"
+
+        clone = deepcopy(primary)
+        clone.id = "live-backup"
+        clone.primary_worker_id = backup_worker.id
+        clone.primary_worker_name = backup_worker.name
+        clone.backup_worker_id = None
+        clone.backup_worker_name = None
+        clone.backup_stream_id = None
+        clone.is_runtime_clone = True
+        clone.runtime_role = "backup"
+        clone.parent_stream_id = primary.id
+        clone.claimed_by_worker_id = backup_worker.id
+        clone.claimed_by_role = "backup"
+        clone.updated_at = clone_updated_at
+        self.store.live_streams = [primary, clone]
+
+        self.store.update_live_stream_progress(
+            stream_id=primary.id,
+            worker_id="live-worker-01",
+            shared_secret=self.store.get_worker_shared_secret(),
+            status="streaming",
+            progress=50,
+            message="healthy",
+        )
+
+        self.assertEqual(clone.updated_at, clone_updated_at)
+
     def test_runtime_state_refreshes_claimed_stream_lease(self) -> None:
         expired_lease = datetime(2000, 1, 1)
         self.store.live_streams = [make_stream(status="preparing", lease_expires_at=expired_lease)]
@@ -190,6 +227,25 @@ class LiveRuntimeLeaseTests(unittest.TestCase):
         refreshed_lease = self.store.live_streams[0].lease_expires_at
         self.assertIsNotNone(refreshed_lease)
         self.assertGreater(refreshed_lease, datetime.now() + timedelta(seconds=30))
+
+    def test_runtime_state_does_not_rescan_stream_list_to_refresh_lease(self) -> None:
+        target = make_stream(status="preparing", lease_expires_at=datetime(2000, 1, 1))
+        unrelated_streams: list[LiveStreamRecord] = []
+        for index in range(200):
+            stream = make_stream(status="ended", lease_expires_at=datetime(2000, 1, 1))
+            stream.id = f"live-history-{index}"
+            stream.claimed_by_worker_id = None
+            unrelated_streams.append(stream)
+        counted_streams = CountingLiveStreamList([*unrelated_streams, target])
+        self.store.live_streams = counted_streams
+
+        self.store.get_live_stream_runtime_state(
+            stream_id=target.id,
+            worker_id="live-worker-01",
+            shared_secret=self.store.get_worker_shared_secret(),
+        )
+
+        self.assertEqual(counted_streams.iteration_count, 1)
 
     def test_disconnected_progress_keeps_worker_claim_and_refreshes_lease(self) -> None:
         expired_lease = datetime(2000, 1, 1)

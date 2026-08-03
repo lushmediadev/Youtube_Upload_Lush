@@ -6452,7 +6452,13 @@ class AppStore:
         stream.ended_at = None
         stream.updated_at = now
 
-    def _upsert_live_backup_clone(self, stream: LiveStreamRecord, *, now: datetime) -> LiveStreamRecord | None:
+    def _upsert_live_backup_clone(
+        self,
+        stream: LiveStreamRecord,
+        *,
+        now: datetime,
+        existing_clone: LiveStreamRecord | None = None,
+    ) -> LiveStreamRecord | None:
         if self._is_runtime_backup_clone(stream):
             return None
         backup_worker_id = str(stream.backup_worker_id or "").strip()
@@ -6565,7 +6571,12 @@ class AppStore:
         clone.claimed_by_role = None
         clone.updated_at = now
 
-    def _sync_live_backup_policy(self, *, now: datetime) -> None:
+    def _sync_live_backup_policy(
+        self,
+        *,
+        now: datetime,
+        refresh_existing_clones: bool = True,
+    ) -> None:
         visible_streams: list[LiveStreamRecord] = []
         streams_by_id: dict[str, LiveStreamRecord] = {}
         backup_clones_by_parent_id: dict[str, LiveStreamRecord] = {}
@@ -6643,7 +6654,8 @@ class AppStore:
                     stream.updated_at = now
                 continue
 
-            clone = self._upsert_live_backup_clone(stream, now=now)
+            if clone is None or refresh_existing_clones:
+                clone = self._upsert_live_backup_clone(stream, now=now, existing_clone=clone)
             if clone is not None and stream.backup_stream_id != clone.id:
                 stream.backup_stream_id = clone.id
                 stream.updated_at = now
@@ -6663,8 +6675,13 @@ class AppStore:
                 continue
             if allowed_stream_ids and stream.id not in allowed_stream_ids:
                 continue
-            lease_duration = timedelta(seconds=self._live_stream_lease_seconds(stream))
-            stream.lease_expires_at = lease_base + lease_duration
+            self._refresh_live_stream_lease(stream, now=lease_base)
+
+    def _refresh_live_stream_lease(self, stream: LiveStreamRecord, *, now: datetime) -> None:
+        if stream.status not in self._live_worker_lease_refresh_statuses():
+            return
+        lease_duration = timedelta(seconds=self._live_stream_lease_seconds(stream))
+        stream.lease_expires_at = now + lease_duration
 
     def _handle_interrupted_live_stream(
         self,
@@ -7151,7 +7168,7 @@ class AppStore:
                 active_stream_ids=payload.active_stream_ids or [],
                 now=now,
             ) or stream_state_changed
-            self._sync_live_backup_policy(now=now)
+            self._sync_live_backup_policy(now=now, refresh_existing_clones=False)
             if self._count_live_worker_running_streams(worker) > 0:
                 worker.status = "busy"
             else:
@@ -7192,7 +7209,7 @@ class AppStore:
             worker = self._authenticate_live_worker(worker_id, shared_secret)
             now = self._now(trim=False)
             previous_status = str(worker.status or "").strip().lower()
-            self._sync_live_backup_policy(now=now)
+            self._sync_live_backup_policy(now=now, refresh_existing_clones=False)
             max_threads = self._effective_live_worker_thread_limit(worker)
             self_reclaim_candidates = [
                 stream
@@ -7461,8 +7478,8 @@ class AppStore:
             if self._is_visible_live_stream(stream) and normalized_status == "streaming":
                 stream.disconnected_at = None
 
-            self._refresh_live_stream_leases(worker_id, now, stream_ids=[stream.id])
-            self._sync_live_backup_policy(now=now)
+            self._refresh_live_stream_lease(stream, now=now)
+            self._sync_live_backup_policy(now=now, refresh_existing_clones=False)
             self._sync_live_worker_runtime_status(worker)
             should_save_state = self._should_persist_live_progress_update(
                 stream,
@@ -7495,7 +7512,7 @@ class AppStore:
             stream = self._find_claimed_live_stream(stream_id, worker_id)
             normalized_status = str(stream.status or "").strip().lower() or "scheduled"
             now = self._now(trim=False)
-            self._refresh_live_stream_leases(worker_id, now, stream_ids=[stream.id])
+            self._refresh_live_stream_lease(stream, now=now)
             playback_mode = self._desired_live_playback_mode(stream, now=now)
             explicit_stop_requested = stream.stop_requested_at is not None and normalized_status not in {"stopped", "ended", "error"}
             visible_stream = self._visible_live_stream_for_runtime(stream)
@@ -7616,7 +7633,7 @@ class AppStore:
                         self._retire_live_backup_clone(clone, now=now, reason="Luồng chính gặp lỗi.")
                         stream.backup_stream_id = None
                 else:
-                    self._sync_live_backup_policy(now=now)
+                    self._sync_live_backup_policy(now=now, refresh_existing_clones=False)
             self._sync_live_worker_runtime_status(worker)
             self._save_state()
             snapshot = deepcopy(stream)
@@ -9419,7 +9436,7 @@ class AppStore:
                 self._notify_live_telegram_chat_ids(notification_payload[0], notification_payload[1])
             changed = changed or stream_changed
         if changed:
-            self._sync_live_backup_policy(now=now)
+            self._sync_live_backup_policy(now=now, refresh_existing_clones=False)
             self._save_state()
         return changed
 
@@ -10707,7 +10724,7 @@ class AppStore:
         if effective_runtime.status == "streaming":
             raise ValueError("Luồng đang live. Hãy dùng Dừng trước khi xóa.")
         now = self._now(trim=False)
-        clone = self._find_live_backup_clone_optional(stream)
+        clone = existing_clone or self._find_live_backup_clone_optional(stream)
         if clone is not None:
             self._retire_live_backup_clone(clone, now=now, reason="Luồng chính đã bị xoá.")
             self._delete_live_preview_file(clone)

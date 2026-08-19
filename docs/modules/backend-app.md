@@ -38,6 +38,7 @@
 - Khi doi worker/user/channel/job contract, phai dong bo store, schema, route va docs.
 - Inactive BOT alert/admin snapshot la BOT-level: chi canh bao khi tat ca assigned users tren worker deu idle qua nguong; live BOT co stream non-terminal/standby van tinh la dang hoat dong. Telegram giu ket qua tai thoi diem gui; bang BOT phai bo stale positive neu assignment doi hoac BOT bat dau hoat dong sau snapshot.
 - Completed-history retention la control-plane-only va mac dinh 30 ngay. Upload chi dọn `completed`; live chi dọn visible primary `ended` da mat toan bo runtime claim/lease va chi khi backup clone lien ket cung terminal.
+- Inactive BOT khong duoc suy tu history don thuan: `bot_allocation_activity` luu watermark theo `user + worker + workspace/role` de retention va chuyen user khong lam sai so ngay.
 
 ## Known Pitfalls
 - `store.py` dang gom nhieu nghiep vu va la noi de phat sinh drift nhat.
@@ -51,3 +52,4 @@
 - `DEC-006`
 - `DEC-007`
 - `DEC-056`
+- `DEC-057`

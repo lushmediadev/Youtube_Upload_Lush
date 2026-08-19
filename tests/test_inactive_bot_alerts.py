@@ -489,6 +489,76 @@ class InactiveBotAlertTests(unittest.TestCase):
         self.assertEqual(current_rows[0]["inactive_days"], 0)
         self.assertFalse(current_rows[0]["inactive_days_alert"])
 
+    def test_upload_inactivity_uses_persisted_allocation_activity_after_job_history_is_removed(self) -> None:
+        assignment_at = self.now - timedelta(days=97)
+        last_job_at = self.now - timedelta(days=44)
+        self.store.workers = [make_worker("worker-history", "manager-1", "manager-alpha", assignment_at)]
+        self.store.user_worker_links = [
+            {"id": 1, "user_id": "user-1", "worker_id": "worker-history", "created_at": assignment_at},
+        ]
+        self.store.bot_allocation_activity = {
+            self.store._bot_allocation_activity_key(
+                workspace="upload",
+                worker_id="worker-history",
+                user_id="user-1",
+                role="upload",
+            ): {"last_job_created_at": last_job_at},
+        }
+
+        inactive = self.store.get_inactive_bot_allocations(now=self.now, days=10)
+
+        self.assertEqual(len(inactive), 1)
+        self.assertEqual(inactive[0]["inactive_days"], 44)
+        self.assertEqual(inactive[0]["last_job_created_at"], last_job_at)
+
+    def test_upload_activity_for_old_user_does_not_apply_after_bot_is_reassigned(self) -> None:
+        old_assignment_at = self.now - timedelta(days=97)
+        new_assignment_at = self.now - timedelta(days=1)
+        self.store.users.append(
+            UserSummary(
+                id="user-2",
+                username="new-user",
+                display_name="New User",
+                role="user",
+                manager_id="manager-1",
+                manager_name="manager-alpha",
+            )
+        )
+        self.store.workers = [make_worker("worker-reassigned", "manager-1", "manager-alpha", old_assignment_at)]
+        self.store.user_worker_links = [
+            {"id": 1, "user_id": "user-2", "worker_id": "worker-reassigned", "created_at": new_assignment_at},
+        ]
+        self.store.bot_allocation_activity = {
+            self.store._bot_allocation_activity_key(
+                workspace="upload",
+                worker_id="worker-reassigned",
+                user_id="user-1",
+                role="upload",
+            ): {"last_job_created_at": self.now - timedelta(days=20)},
+        }
+
+        self.assertEqual(self.store.get_inactive_bot_allocations(now=self.now, days=10), [])
+
+    def test_history_retention_keeps_upload_allocation_activity_before_deleting_completed_job(self) -> None:
+        assignment_at = self.now - timedelta(days=97)
+        last_job_at = self.now - timedelta(days=44)
+        self.store.workers = [make_worker("worker-history", "manager-1", "manager-alpha", assignment_at)]
+        self.store.user_worker_links = [
+            {"id": 1, "user_id": "user-1", "worker_id": "worker-history", "created_at": assignment_at},
+        ]
+        self.store.channels = [make_channel("channel-history", "worker-history", "manager-alpha")]
+        self.store.channel_user_links = [{"id": 1, "channel_id": "channel-history", "user_id": "user-1"}]
+        expired = make_job("job-history", "channel-history", "worker-history", last_job_at)
+        expired.completed_at = self.now - timedelta(days=31)
+        self.store.jobs = [expired]
+
+        self.store._cleanup_completed_history(now=self.now)
+        inactive = self.store.get_inactive_bot_allocations(now=self.now, days=10)
+
+        self.assertEqual(self.store.jobs, [])
+        self.assertEqual(inactive[0]["inactive_days"], 44)
+        self.assertEqual(inactive[0]["last_job_created_at"], last_job_at)
+
     def test_live_standby_stream_keeps_bot_active_for_inactive_alerts(self) -> None:
         old = self.now - timedelta(days=30)
         self.store.live_workers = [
@@ -714,6 +784,22 @@ class InactiveBotAlertTests(unittest.TestCase):
         json.dumps(payload, ensure_ascii=False)
         self.assertEqual(payload["user_worker_links"][0]["created_at"], "2026-05-04T08:15:00")
         self.assertEqual(payload["live_user_worker_links"][0]["created_at"], "2026-05-04T08:15:00")
+
+        activity_key = self.store._bot_allocation_activity_key(
+            workspace="upload",
+            worker_id="worker-upload",
+            user_id="user-1",
+            role="upload",
+        )
+        self.store.bot_allocation_activity = {activity_key: {"last_job_created_at": created_at}}
+        payload = self.store._serialize_state()
+        restored = TestableStore()
+        restored._apply_state(payload)
+
+        self.assertEqual(
+            restored.bot_allocation_activity[activity_key]["last_job_created_at"],
+            created_at,
+        )
 
 
 if __name__ == "__main__":

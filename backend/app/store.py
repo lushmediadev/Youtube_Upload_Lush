@@ -445,6 +445,7 @@ class AppStore:
         self.inactive_bot_table_snapshot_date: str | None = None
         self.inactive_bot_table_snapshot_threshold_days: int | None = None
         self.inactive_bot_table_snapshot: dict[str, dict[str, Any]] = {}
+        self.bot_allocation_activity: dict[str, dict[str, datetime]] = {}
 
         self.users = [
             UserSummary(id="admin-1", username="admin", display_name="Admin", role="admin"),
@@ -1134,6 +1135,21 @@ class AppStore:
             }
         return restored
 
+    def _restore_bot_allocation_activity(self, payload: dict[str, Any]) -> dict[str, dict[str, datetime]]:
+        restored: dict[str, dict[str, datetime]] = {}
+        for raw_key, raw_entry in payload.items():
+            key = str(raw_key or "").strip()
+            if not key or not isinstance(raw_entry, dict):
+                continue
+            entry: dict[str, datetime] = {}
+            for field in ("last_job_created_at", "last_terminal_at"):
+                parsed = self._parse_datetime(raw_entry.get(field))
+                if parsed is not None:
+                    entry[field] = parsed
+            if entry:
+                restored[key] = entry
+        return restored
+
     def _serialize_state(self) -> dict[str, Any]:
         return {
             "users": [user.model_dump(mode="json") for user in self.users],
@@ -1159,6 +1175,7 @@ class AppStore:
             "inactive_bot_table_snapshot_date": self.inactive_bot_table_snapshot_date,
             "inactive_bot_table_snapshot_threshold_days": self.inactive_bot_table_snapshot_threshold_days,
             "inactive_bot_table_snapshot": self._serialize_value(self.inactive_bot_table_snapshot),
+            "bot_allocation_activity": self._serialize_value(self.bot_allocation_activity),
             "render_delete_meta": self._serialize_value(self.render_delete_meta),
         }
 
@@ -1217,6 +1234,9 @@ class AppStore:
             for key, value in (payload.get("inactive_bot_table_snapshot") or {}).items()
             if str(key or "").strip() and isinstance(value, dict)
         }
+        self.bot_allocation_activity = self._restore_bot_allocation_activity(
+            payload.get("bot_allocation_activity") or {}
+        )
 
         render_meta = payload.get("render_delete_meta") or {}
         self.render_delete_meta = {
@@ -2223,6 +2243,8 @@ class AppStore:
         ]
         expired_job_ids = {job.id for job in expired_jobs}
         if expired_job_ids:
+            for job in expired_jobs:
+                self._remember_upload_job_activity(job)
             self.jobs = [job for job in self.jobs if job.id not in expired_job_ids]
             for job in expired_jobs:
                 self._purge_job_artifacts(job, exclude_job_id=job.id)
@@ -2256,6 +2278,7 @@ class AppStore:
                 clone = clones_by_parent_id.get(stream.id)
             if not self._live_stream_is_genuinely_ended_for_retention(stream, clone=clone, cutoff=cutoff):
                 continue
+            self._remember_live_stream_activity(stream)
             expired_primary_ids.add(stream.id)
             expired_live_records.append(stream)
             if clone is not None:
@@ -2300,6 +2323,8 @@ class AppStore:
                 return
             self._reconcile_worker_connectivity(now=self._now(trim=False))
             self._reconcile_registered_worker_operation_tasks()
+            if self._seed_bot_allocation_activity_from_history():
+                self._save_state()
             self._monitor_stop_event.clear()
             self._monitor_thread = Thread(
                 target=self._worker_monitor_loop,
@@ -3535,6 +3560,167 @@ class AppStore:
         normalized_now = self._normalize_datetime(now) or self._now(trim=False)
         return max(0, (normalized_now - normalized_activity_at).days) if normalized_activity_at else 0
 
+    @staticmethod
+    def _bot_allocation_activity_key(
+        *,
+        workspace: str,
+        worker_id: str,
+        user_id: str,
+        role: str,
+    ) -> str:
+        return "|".join(
+            (
+                str(workspace or "").strip(),
+                str(role or "").strip(),
+                str(worker_id or "").strip(),
+                str(user_id or "").strip(),
+            )
+        )
+
+    @staticmethod
+    def _parse_bot_allocation_activity_key(key: str) -> tuple[str, str, str, str] | None:
+        parts = str(key or "").split("|", 3)
+        if len(parts) != 4 or not all(part.strip() for part in parts):
+            return None
+        return tuple(part.strip() for part in parts)  # type: ignore[return-value]
+
+    def _remember_bot_allocation_activity(
+        self,
+        *,
+        workspace: str,
+        worker_id: str,
+        user_id: str,
+        role: str,
+        occurred_at: datetime | None,
+        field: str = "last_job_created_at",
+    ) -> bool:
+        normalized_occurred_at = self._normalize_datetime(occurred_at) if occurred_at is not None else None
+        if normalized_occurred_at is None:
+            return False
+        if field not in {"last_job_created_at", "last_terminal_at"}:
+            raise ValueError("Trường activity BOT không hợp lệ.")
+        key = self._bot_allocation_activity_key(
+            workspace=workspace,
+            worker_id=worker_id,
+            user_id=user_id,
+            role=role,
+        )
+        if "||" in key or key.startswith("|") or key.endswith("|"):
+            return False
+        entry = self.bot_allocation_activity.setdefault(key, {})
+        previous = entry.get(field)
+        if previous is not None and previous >= normalized_occurred_at:
+            return False
+        entry[field] = normalized_occurred_at
+        return True
+
+    def _remember_upload_job_activity(self, job: RenderJobRecord) -> bool:
+        channel = self._find_channel_optional(job.channel_id)
+        if channel is None:
+            return False
+        worker_alias_to_id = {
+            alias: worker.id
+            for worker in self.workers
+            for alias in self._worker_aliases(worker)
+        }
+        channel_worker_id = worker_alias_to_id.get(str(channel.worker_id or "").strip())
+        if not channel_worker_id:
+            return False
+        job_worker_name = str(job.worker_name or "").strip()
+        job_worker_id = worker_alias_to_id.get(job_worker_name)
+        if job_worker_name and job_worker_id and job_worker_id != channel_worker_id:
+            return False
+        changed = False
+        for link in self.channel_user_links:
+            if str(link.get("channel_id") or "").strip() != channel.id:
+                continue
+            changed = self._remember_bot_allocation_activity(
+                workspace="upload",
+                worker_id=channel_worker_id,
+                user_id=str(link.get("user_id") or "").strip(),
+                role="upload",
+                occurred_at=job.created_at,
+            ) or changed
+        return changed
+
+    def _remember_live_stream_activity(self, stream: LiveStreamRecord) -> bool:
+        if self._is_runtime_backup_clone(stream):
+            return False
+        user_id = str(stream.owner_user_id or "").strip()
+        if not user_id:
+            return False
+        changed = False
+        primary_worker_id = str(stream.primary_worker_id or "").strip()
+        if primary_worker_id:
+            changed = self._remember_bot_allocation_activity(
+                workspace="live",
+                worker_id=primary_worker_id,
+                user_id=user_id,
+                role="primary",
+                occurred_at=stream.created_at,
+            ) or changed
+        backup_worker_id = str(stream.backup_worker_id or "").strip()
+        if backup_worker_id:
+            changed = self._remember_bot_allocation_activity(
+                workspace="live",
+                worker_id=backup_worker_id,
+                user_id=user_id,
+                role="backup",
+                occurred_at=stream.created_at,
+            ) or changed
+        terminal_at = self._live_stream_terminal_activity_at(stream)
+        if terminal_at is None:
+            return changed
+        if primary_worker_id:
+            changed = self._remember_bot_allocation_activity(
+                workspace="live",
+                worker_id=primary_worker_id,
+                user_id=user_id,
+                role="primary",
+                occurred_at=terminal_at,
+                field="last_terminal_at",
+            ) or changed
+        if backup_worker_id:
+            changed = self._remember_bot_allocation_activity(
+                workspace="live",
+                worker_id=backup_worker_id,
+                user_id=user_id,
+                role="backup",
+                occurred_at=terminal_at,
+                field="last_terminal_at",
+            ) or changed
+        return changed
+
+    def _seed_bot_allocation_activity_from_history(self) -> bool:
+        context = self._bot_row_inactivity_context()
+        changed = False
+        for (user_id, worker_id, role), occurred_at in context["upload"].items():
+            changed = self._remember_bot_allocation_activity(
+                workspace="upload",
+                worker_id=worker_id,
+                user_id=user_id,
+                role=role,
+                occurred_at=occurred_at,
+            ) or changed
+        for (user_id, worker_id, role), occurred_at in context["live"].items():
+            changed = self._remember_bot_allocation_activity(
+                workspace="live",
+                worker_id=worker_id,
+                user_id=user_id,
+                role=role,
+                occurred_at=occurred_at,
+            ) or changed
+        for (user_id, worker_id, role), occurred_at in context["live_terminal"].items():
+            changed = self._remember_bot_allocation_activity(
+                workspace="live",
+                worker_id=worker_id,
+                user_id=user_id,
+                role=role,
+                occurred_at=occurred_at,
+                field="last_terminal_at",
+            ) or changed
+        return changed
+
     def _bot_row_inactivity_context(self) -> dict[str, dict[tuple[str, str, str], datetime]]:
         upload_worker_alias_to_id: dict[str, str] = {}
         for worker in self.workers:
@@ -3594,6 +3780,26 @@ class AppStore:
                     live_terminal_last_by_key[key] = max(
                         live_terminal_last_by_key.get(key, terminal_activity_at),
                         terminal_activity_at,
+                    )
+
+        for raw_key, activity in self.bot_allocation_activity.items():
+            parsed_key = self._parse_bot_allocation_activity_key(raw_key)
+            if parsed_key is None:
+                continue
+            workspace, role, worker_id, user_id = parsed_key
+            last_job_created_at = activity.get("last_job_created_at")
+            last_terminal_at = activity.get("last_terminal_at")
+            if workspace == "upload" and role == "upload" and last_job_created_at is not None:
+                key = (user_id, worker_id, "upload")
+                upload_last_by_key[key] = max(upload_last_by_key.get(key, last_job_created_at), last_job_created_at)
+            elif workspace == "live":
+                key = (user_id, worker_id, role)
+                if last_job_created_at is not None:
+                    live_last_by_key[key] = max(live_last_by_key.get(key, last_job_created_at), last_job_created_at)
+                if last_terminal_at is not None:
+                    live_terminal_last_by_key[key] = max(
+                        live_terminal_last_by_key.get(key, last_terminal_at),
+                        last_terminal_at,
                     )
 
         return {
@@ -7607,6 +7813,9 @@ class AppStore:
             if self._is_visible_live_stream(stream) and normalized_status == "streaming":
                 stream.disconnected_at = None
 
+            if self._is_visible_live_stream(stream) and normalized_status in {"stopped", "ended", "error"}:
+                self._remember_live_stream_activity(stream)
+
             self._refresh_live_stream_lease(stream, now=now)
             self._sync_live_backup_policy(now=now, refresh_existing_clones=False)
             self._sync_live_worker_runtime_status(worker)
@@ -10685,6 +10894,7 @@ class AppStore:
             updated_at=now,
         )
         self.live_streams.append(stream)
+        self._remember_live_stream_activity(stream)
         self._sync_live_backup_policy(now=now)
         self._save_state()
         self._notify_live_telegram_chat_ids(
@@ -10957,6 +11167,7 @@ class AppStore:
         if clone is not None:
             self._retire_live_backup_clone(clone, now=now, reason="Luồng chính đã được dừng thủ công.")
             stream.backup_stream_id = None
+        self._remember_live_stream_activity(stream)
         self._save_state()
         viewer_username = ""
         if viewer_id:
@@ -11430,6 +11641,13 @@ class AppStore:
             assets=[asset for asset in assets if asset.url or asset.file_name],
         )
         self.jobs.append(job)
+        self._remember_bot_allocation_activity(
+            workspace="upload",
+            worker_id=worker.id,
+            user_id=user.id,
+            role="upload",
+            occurred_at=created_at,
+        )
         self._refresh_queue_positions()
         self._save_state()
         return deepcopy(job)

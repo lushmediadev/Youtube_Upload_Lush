@@ -4022,6 +4022,9 @@ class AppStore:
             ),
             "inactive_days_alert": bool(inactive_users),
             "inactive_users": inactive_users,
+            "assignment_created_at": self._parse_datetime(summary.get("assignment_created_at")),
+            "last_job_created_at": self._parse_datetime(summary.get("last_job_created_at")),
+            "last_activity_at": self._parse_datetime(summary.get("last_activity_at")),
         }
 
     def _bot_row_inactivity_for_current_state(
@@ -4057,7 +4060,13 @@ class AppStore:
             for item in current.get("inactive_users") or []
             if str(item.get("username") or "").strip()
         }
-        return current if snapshot_usernames != current_usernames else snapshot
+        if snapshot_usernames != current_usernames:
+            return current
+        snapshot_activity_at = snapshot.get("last_activity_at")
+        current_activity_at = current.get("last_activity_at")
+        if snapshot_activity_at != current_activity_at:
+            return current
+        return snapshot
 
     def get_inactive_bot_allocations(
         self,

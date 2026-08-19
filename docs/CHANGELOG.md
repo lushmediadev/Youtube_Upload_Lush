@@ -1310,3 +1310,4 @@
 - 2026-08-03: Added server-side pagination/search for admin upload/live history and a conservative 30-day control-plane retention pass. Upload cleanup only removes `completed` jobs; live cleanup requires a truly `ended`, unclaimed, lease-free primary and a terminal backup clone before removing the pair.
 - 2026-08-03: Restored the designed upload/live table header spacing and typography for server-paginated history without showing misleading current-page sort controls.
 - 2026-08-19: Preserved inactive-BOT activity per allocation outside 30-day history retention, preventing deleted job/live records from making alerts fall back to assignment date. Added snapshot backfill support for existing production state.
+- 2026-08-19: Updated the BOT table to reflect corrected activity watermarks immediately while retaining the original daily Telegram alert as history.

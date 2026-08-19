@@ -539,6 +539,31 @@ class InactiveBotAlertTests(unittest.TestCase):
 
         self.assertEqual(self.store.get_inactive_bot_allocations(now=self.now, days=10), [])
 
+    def test_bot_table_refreshes_daily_snapshot_when_allocation_activity_is_corrected(self) -> None:
+        assignment_at = self.now - timedelta(days=97)
+        last_job_at = self.now - timedelta(days=44)
+        self.store._now = lambda trim=True: self.now
+        self.store.workers = [make_worker("worker-history", "manager-1", "manager-alpha", assignment_at)]
+        self.store.user_worker_links = [
+            {"id": 1, "user_id": "user-1", "worker_id": "worker-history", "created_at": assignment_at},
+        ]
+        self.store.inactive_bot_table_snapshot = self.store._build_inactive_bot_table_snapshot(now=self.now)
+        self.store.inactive_bot_table_snapshot_date = self.now.date().isoformat()
+        self.store.inactive_bot_table_snapshot_threshold_days = 10
+        self.store.bot_allocation_activity = {
+            self.store._bot_allocation_activity_key(
+                workspace="upload",
+                worker_id="worker-history",
+                user_id="user-1",
+                role="upload",
+            ): {"last_job_created_at": last_job_at},
+        }
+
+        row = self.store._build_bot_rows()[0]
+
+        self.assertEqual(row["inactive_days"], 44)
+        self.assertEqual(row["inactive_users"], [{"username": "demo-user", "days": 44}])
+
     def test_history_retention_keeps_upload_allocation_activity_before_deleting_completed_job(self) -> None:
         assignment_at = self.now - timedelta(days=97)
         last_job_at = self.now - timedelta(days=44)

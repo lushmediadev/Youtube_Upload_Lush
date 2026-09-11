@@ -1753,6 +1753,42 @@ class AppStore:
             self._save_state()
         self._resume_worker_operation_queue()
 
+    def cancel_failed_worker_install_operation(
+        self,
+        operation_id: str,
+        *,
+        viewer_role: str = "admin",
+        viewer_id: str | None = None,
+    ) -> dict[str, Any]:
+        with self._worker_state_lock:
+            task = self._find_worker_operation(operation_id)
+            if str(task.get("kind") or "").strip() != "install":
+                raise ValueError("Chỉ có thể hủy task cài đặt BOT.")
+            if str(task.get("status") or "").strip() != "failed":
+                raise ValueError("Task cài đặt chưa ở trạng thái lỗi.")
+            if viewer_role == "manager" and str(task.get("manager_id") or "").strip() != str(viewer_id or "").strip():
+                raise ValueError("Không có quyền hủy task cài đặt BOT này.")
+
+            removed = deepcopy(task)
+            worker_id = str(task.get("worker_id") or "").strip()
+            workspace_mode = self._restore_worker_operation_workspace_mode(task)
+            self.worker_operation_tasks = [
+                item
+                for item in self.worker_operation_tasks
+                if str(item.get("id") or "").strip() != str(operation_id or "").strip()
+            ]
+            worker_pool = self._workspace_worker_pool(workspace_mode)
+            if worker_id and not any(str(worker.id or "").strip() == worker_id for worker in worker_pool):
+                self.worker_connection_profiles.pop(worker_id, None)
+            self._push_admin_notification(
+                message=f"Đã hủy task cài đặt BOT {str(task.get('worker_name') or task.get('vps_ip') or worker_id).strip()}.",
+                level="info",
+                manager_id=str(task.get("manager_id") or "").strip() or None,
+            )
+            self._save_state()
+        self._resume_worker_operation_queue()
+        return removed
+
     def enqueue_worker_install_operation(
         self,
         *,
@@ -12839,6 +12875,11 @@ class AppStore:
             "is_operation_placeholder": True,
             "operation_kind": str(task.get("kind") or "").strip(),
             "operation_status": str(task.get("status") or "").strip(),
+            "operation_id": str(task.get("id") or "").strip(),
+            "can_cancel_operation": (
+                str(task.get("kind") or "").strip() == "install"
+                and str(task.get("status") or "").strip() == "failed"
+            ),
         }
 
     def _apply_operation_state_to_worker_row(self, row: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:
@@ -12857,6 +12898,8 @@ class AppStore:
                 "actions_disabled": not operation_failed,
                 "operation_kind": kind,
                 "operation_status": status,
+                "operation_id": str(task.get("id") or "").strip(),
+                "can_cancel_operation": kind == "install" and operation_failed,
             }
         )
         return updated_row

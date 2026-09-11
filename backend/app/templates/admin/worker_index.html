@@ -412,6 +412,17 @@
                                         </p>
                                         <p class="mt-1 truncate text-[12px] text-slate-500" title="{{ worker.meta_text or '' }}">{{ worker.meta_text or 'Control-plane đang xử lý trên VPS.' }}</p>
                                     </div>
+                                    {% if worker.can_cancel_operation %}
+                                    <button
+                                        type="button"
+                                        class="action-btn action-btn-rose shrink-0 whitespace-nowrap"
+                                        data-cancel-install-operation="{{ worker.operation_id }}"
+                                        data-worker-name="{{ worker.name }}"
+                                    >
+                                        <i data-lucide="circle-x" class="h-3.5 w-3.5"></i>
+                                        Hủy cài đặt
+                                    </button>
+                                    {% endif %}
                                 </div>
                             </div>
                         </td>
@@ -1658,6 +1669,15 @@
       const workerName = escapeHtml(worker.name || '-');
       const statusLabel = escapeHtml(worker.status_label || 'Đang xử lý...');
       const metaText = escapeHtml(worker.meta_text || 'Control-plane đang xử lý trên VPS.');
+      const operationId = escapeHtml(worker.operation_id || '');
+      const cancelMarkup = worker.can_cancel_operation && operationId
+        ? [
+            '<button type="button" class="action-btn action-btn-rose shrink-0 whitespace-nowrap" data-cancel-install-operation="', operationId, '" data-worker-name="', workerName, '">',
+            '  <i data-lucide="circle-x" class="h-3.5 w-3.5"></i>',
+            '  Hủy cài đặt',
+            '</button>'
+          ].join('')
+        : '';
       const indicatorMarkup = isFailure
         ? '<i data-lucide="x-circle" class="h-4 w-4"></i>'
         : '<span class="inline-flex h-4 w-4 animate-spin rounded-full border-2 ' + visual.spinner + '"></span>';
@@ -1677,6 +1697,7 @@
         '          </p>',
         '          <p class="mt-1 truncate text-[12px] text-slate-500" title="', metaText, '">', metaText, '</p>',
         '        </div>',
+        '        ', cancelMarkup,
         '      </div>',
         '    </div>',
         '  </td>',
@@ -2523,6 +2544,12 @@
         showSystemNotice('H\u00e3y ch\u1ecdn manager tr\u01b0\u1edbc khi g\u00e1n user cho BOT m\u1edbi.', 'error');
         return;
       }
+      const cancelInstallButton = event.target.closest('[data-cancel-install-operation]');
+      if (cancelInstallButton) {
+        event.preventDefault();
+        requestCancelFailedInstall(cancelInstallButton);
+        return;
+      }
       if (authMode === 'password' && !passwordValue) {
         setSubmitLoading(createBotSubmit, false, loadingLabel);
         showSystemNotice('H\u00e3y nh\u1eadp password root ho\u1eb7c chuy\u1ec3n sang SSH key.', 'error');
@@ -2629,6 +2656,50 @@
             : (normalizedWorkspaceKind === 'live' ? 'Kh\u00f4ng th\u1ec3 x\u00f3a BOT live l\u00fac n\u00e0y.' : 'Kh\u00f4ng th\u1ec3 x\u00f3a BOT l\u00fac n\u00e0y.'),
           'error'
         );
+      }
+    }
+
+    async function requestCancelFailedInstall(button) {
+      const operationId = String(button && button.dataset.cancelInstallOperation ? button.dataset.cancelInstallOperation : '').trim();
+      const workerName = String(button && button.dataset.workerName ? button.dataset.workerName : '').trim();
+      if (!operationId) {
+        return;
+      }
+      if (!window.confirm('Hủy task cài BOT ' + (workerName || '') + '? Hệ thống sẽ dừng tiến trình bootstrap còn treo trên VPS trước khi giải phóng row.')) {
+        return;
+      }
+      const originalHtml = button.innerHTML;
+      button.disabled = true;
+      button.textContent = 'Đang hủy...';
+      try {
+        const response = await fetch('/api/admin/bot-operations/' + encodeURIComponent(operationId), {
+          method: 'DELETE',
+          credentials: 'same-origin',
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const responsePayload = await response.json();
+        if (!response.ok) {
+          throw new Error(
+            responsePayload && typeof responsePayload.detail === 'string' && responsePayload.detail.trim()
+              ? responsePayload.detail.trim()
+              : 'Không thể hủy task cài BOT.'
+          );
+        }
+        showSystemNotice(
+          responsePayload && typeof responsePayload.message === 'string' && responsePayload.message.trim()
+            ? responsePayload.message.trim()
+            : 'Đã hủy task cài BOT lỗi.',
+          'success'
+        );
+        lastPayloadSignature = '';
+        await fetchLiveWorkers();
+      } catch (error) {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+        showSystemNotice(error && error.message ? error.message : 'Không thể hủy task cài BOT.', 'error');
+        if (typeof window.hydrateAdminIcons === 'function') {
+          window.hydrateAdminIcons();
+        }
       }
     }
 

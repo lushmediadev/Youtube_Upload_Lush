@@ -719,6 +719,149 @@ def decommission_worker_via_ssh(
         client.close()
 
 
+def cancel_failed_worker_install_via_ssh(request: WorkerDecommissionRequest) -> dict[str, int]:
+    client = _connect_client(request)
+    sudo_prefix = "" if request.ssh_user == "root" else "sudo "
+    cleanup_script = r'''
+import os
+import re
+import shutil
+import signal
+import sys
+import time
+from pathlib import Path
+
+bootstrap_pattern = re.compile(
+    r"(?:^|\s)bash\s+(/tmp/youtube-worker-bootstrap-[^/\s]+)/bootstrap_worker\.sh(?:\s|$)"
+)
+
+def command_line(pid):
+    try:
+        return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+def process_table():
+    parents = {}
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat = (entry / "stat").read_text(encoding="utf-8", errors="replace")
+            tail = stat.rsplit(")", 1)[1].strip().split()
+            parents[int(entry.name)] = int(tail[1])
+        except (OSError, ValueError, IndexError):
+            continue
+    return parents
+
+def process_is_alive(pid):
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+        state = stat.rsplit(")", 1)[1].strip().split()[0]
+        return state != "Z"
+    except (OSError, IndexError):
+        return False
+
+roots = [pid for pid in process_table() if bootstrap_pattern.search(command_line(pid))]
+parents = process_table()
+targets = set(roots)
+changed = True
+while changed:
+    changed = False
+    for pid, parent_pid in parents.items():
+        if parent_pid in targets and pid not in targets:
+            targets.add(pid)
+            changed = True
+
+temp_dirs = set()
+for pid in roots:
+    match = bootstrap_pattern.search(command_line(pid))
+    if match:
+        temp_dirs.add(match.group(1))
+
+for sig in (signal.SIGTERM, signal.SIGKILL):
+    for pid in sorted(targets, reverse=True):
+        try:
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
+    deadline = time.time() + (5 if sig == signal.SIGTERM else 2)
+    while time.time() < deadline:
+        if not any(process_is_alive(pid) for pid in targets):
+            break
+        time.sleep(0.2)
+
+alive = [pid for pid in targets if process_is_alive(pid)]
+if alive:
+    print("remaining_pids=" + ",".join(str(pid) for pid in sorted(alive)), file=sys.stderr)
+    raise SystemExit(2)
+
+for temp_dir in temp_dirs:
+    path = Path(temp_dir)
+    if path.parent == Path("/tmp") and path.name.startswith("youtube-worker-bootstrap-"):
+        shutil.rmtree(path, ignore_errors=True)
+
+print(f"cancelled_roots={len(roots)} cancelled_processes={len(targets)}")
+'''.strip()
+    command = f"{sudo_prefix}python3 - <<'PY'\n{cleanup_script}\nPY"
+    try:
+        exit_code, stdout, stderr = _run_remote_command(
+            client,
+            command,
+            timeout_seconds=_worker_ssh_short_timeout_seconds(),
+        )
+        if exit_code != 0:
+            raise WorkerBootstrapError(
+                _remote_command_error_message(command, stdout, stderr)
+            )
+        match = re.search(r"cancelled_roots=(\d+)\s+cancelled_processes=(\d+)", stdout)
+        if match is None:
+            raise WorkerBootstrapError("Không xác minh được kết quả hủy tiến trình cài BOT.")
+        return {
+            "cancelled_roots": int(match.group(1)),
+            "cancelled_processes": int(match.group(2)),
+        }
+    finally:
+        client.close()
+
+
+def cancel_failed_worker_install_operation(
+    store,
+    operation_id: str,
+    *,
+    viewer_role: str = "admin",
+    viewer_id: str | None = None,
+) -> dict:
+    normalized_id = str(operation_id or "").strip()
+    task = next(
+        (
+            item
+            for item in store.get_worker_operation_snapshots()
+            if str(item.get("id") or "").strip() == normalized_id
+        ),
+        None,
+    )
+    if task is None:
+        raise KeyError(operation_id)
+    if str(task.get("kind") or "").strip() != "install":
+        raise ValueError("Chỉ có thể hủy task cài đặt BOT.")
+    if str(task.get("status") or "").strip() != "failed":
+        raise ValueError("Task cài đặt chưa ở trạng thái lỗi.")
+    if viewer_role == "manager" and str(task.get("manager_id") or "").strip() != str(viewer_id or "").strip():
+        raise ValueError("Không có quyền hủy task cài đặt BOT này.")
+    if is_worker_operation_thread_active(normalized_id):
+        raise ValueError("Task cài đặt vẫn còn được control-plane xử lý.")
+
+    request = _decommission_request_from_task(store, task)
+    cleanup = cancel_failed_worker_install_via_ssh(request)
+    removed = store.cancel_failed_worker_install_operation(
+        normalized_id,
+        viewer_role=viewer_role,
+        viewer_id=viewer_id,
+    )
+    return {**removed, "remote_cleanup": cleanup}
+
+
 def _run_worker_install_operation_legacy_unused(store, operation_id: str, request: WorkerBootstrapRequest) -> None:
     raise RuntimeError("_run_worker_install_operation_legacy_unused should never be called")
     try:

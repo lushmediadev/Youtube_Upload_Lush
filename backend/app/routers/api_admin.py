@@ -16,6 +16,7 @@ from ..worker_bootstrap import (
     normalize_ssh_user,
     start_worker_decommission_operation,
     start_worker_install_operation,
+    cancel_failed_worker_install_operation,
 )
 
 router = APIRouter(tags=["admin"])
@@ -712,6 +713,28 @@ async def install_admin_bot(request: Request, payload: AdminBotInstallPayload):
         }
     except (ValueError, WorkerBootstrapError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/admin/bot-operations/{operation_id}")
+async def cancel_admin_bot_install_operation(request: Request, operation_id: str):
+    current_user = require_admin_access(request)
+    try:
+        result = cancel_failed_worker_install_operation(
+            store,
+            operation_id,
+            viewer_role=current_user.role,
+            viewer_id=current_user.id,
+        )
+        return {
+            "ok": True,
+            "operation_id": operation_id,
+            "worker_id": result.get("worker_id"),
+            "message": "Đã hủy task cài BOT lỗi. Bạn có thể cài lại VPS này.",
+        }
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Không tìm thấy task cài BOT.") from exc
+    except (ValueError, WorkerBootstrapError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/admin/workers")

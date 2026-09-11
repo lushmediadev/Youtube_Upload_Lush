@@ -11,6 +11,7 @@ from backend.app.store import AppStore
 from backend.app.worker_bootstrap import (
     WorkerBootstrapError,
     WorkerDecommissionRequest,
+    cancel_failed_worker_install_via_ssh,
     _decommission_request_from_task,
     _run_worker_decommission_operation,
     normalize_ssh_user,
@@ -347,6 +348,100 @@ class BotLocalTests(unittest.TestCase):
         profile = self.store.get_worker_connection_profile("live-worker-65", workspace_mode="live")
         self.assertEqual(profile["ssh_user"], "ubuntu")
         self.assertIn("new", profile["ssh_private_key"])
+
+    def test_failed_install_placeholder_exposes_cancel_action_and_can_be_removed(self) -> None:
+        self.store.workers = []
+        self.store.worker_operation_tasks = [
+            {
+                "id": "worker-op-failed",
+                "worker_id": "live-worker-16",
+                "worker_name": "77.237.247.243",
+                "vps_ip": "77.237.247.243",
+                "workspace_mode": "live",
+                "kind": "install",
+                "status": "failed",
+                "manager_id": "manager-1",
+                "manager_name": "manager",
+            }
+        ]
+        self.store.worker_connection_profiles = {
+            "live-worker-16": {
+                "vps_ip": "77.237.247.243",
+                "ssh_user": "root",
+                "password": "old-pass",
+            }
+        }
+
+        row = self.store._build_operation_placeholder_row(self.store.worker_operation_tasks[0])
+
+        self.assertEqual(row["operation_id"], "worker-op-failed")
+        self.assertTrue(row["can_cancel_operation"])
+
+        removed = self.store.cancel_failed_worker_install_operation(
+            "worker-op-failed",
+            viewer_role="admin",
+            viewer_id="admin-1",
+        )
+
+        self.assertEqual(removed["worker_id"], "live-worker-16")
+        self.assertEqual(self.store.worker_operation_tasks, [])
+        self.assertNotIn("live-worker-16", self.store.worker_connection_profiles)
+
+    def test_running_install_operation_cannot_be_cancelled_as_failed(self) -> None:
+        self.store.worker_operation_tasks = [
+            {
+                "id": "worker-op-running",
+                "worker_id": "worker-pending",
+                "workspace_mode": "upload",
+                "kind": "install",
+                "status": "running",
+            }
+        ]
+
+        with self.assertRaisesRegex(ValueError, "chưa ở trạng thái lỗi"):
+            self.store.cancel_failed_worker_install_operation(
+                "worker-op-running",
+                viewer_role="admin",
+                viewer_id="admin-1",
+            )
+
+    def test_manager_cannot_cancel_another_managers_failed_install(self) -> None:
+        self.store.worker_operation_tasks = [
+            {
+                "id": "worker-op-failed",
+                "worker_id": "worker-pending",
+                "workspace_mode": "upload",
+                "kind": "install",
+                "status": "failed",
+                "manager_id": "manager-other",
+            }
+        ]
+
+        with self.assertRaisesRegex(ValueError, "Không có quyền"):
+            self.store.cancel_failed_worker_install_operation(
+                "worker-op-failed",
+                viewer_role="manager",
+                viewer_id="manager-1",
+            )
+
+    def test_remote_failed_install_cancel_requires_verified_process_cleanup(self) -> None:
+        request = WorkerDecommissionRequest(
+            vps_ip="77.237.247.243",
+            ssh_user="root",
+            password="old-pass",
+        )
+        fake_client = unittest.mock.Mock()
+
+        with patch("backend.app.worker_bootstrap._connect_client", return_value=fake_client), patch(
+            "backend.app.worker_bootstrap._run_remote_command",
+            return_value=(0, "cancelled_roots=1 cancelled_processes=3\n", ""),
+        ) as remote_command:
+            result = cancel_failed_worker_install_via_ssh(request)
+
+        self.assertEqual(result["cancelled_roots"], 1)
+        self.assertEqual(result["cancelled_processes"], 3)
+        self.assertIn("youtube-worker-bootstrap-", remote_command.call_args.args[1])
+        fake_client.close.assert_called_once()
 
     def test_normalize_ssh_user_accepts_full_ssh_command_or_user_at_host(self) -> None:
         self.assertEqual(normalize_ssh_user("ssh ubuntu@51.91.242.160"), "ubuntu")

@@ -658,6 +658,9 @@ def claim_live_stream(client: httpx.Client, config: WorkerConfig) -> dict[str, A
         "POST",
         "/api/live-workers/claim",
         operation="claim_live_stream",
+        retry_forever=False,
+        max_attempts=1,
+        timeout=config.live_control_plane_timeout_seconds,
         json={
             "worker_id": config.worker_id,
             "shared_secret": config.shared_secret,
@@ -726,7 +729,8 @@ def update_live_stream_progress(
         f"/api/live-workers/streams/{stream_id}/progress",
         operation=f"update_live_stream_progress:{stream_id}",
         retry_forever=False,
-        max_attempts=config.progress_retry_attempts,
+        max_attempts=1,
+        timeout=config.live_control_plane_timeout_seconds,
         json=payload,
     )
 
@@ -744,6 +748,7 @@ def get_live_stream_runtime_state(
         operation=f"get_live_stream_runtime_state:{stream_id}",
         retry_forever=False,
         max_attempts=1,
+        timeout=config.live_control_plane_timeout_seconds,
         headers=worker_auth_headers(config),
     )
     payload = response.json()

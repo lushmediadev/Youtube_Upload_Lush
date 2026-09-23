@@ -1312,3 +1312,4 @@
 - 2026-08-19: Preserved inactive-BOT activity per allocation outside 30-day history retention, preventing deleted job/live records from making alerts fall back to assignment date. Added snapshot backfill support for existing production state.
 - 2026-08-19: Updated the BOT table to reflect corrected activity watermarks immediately while retaining the original daily Telegram alert as history.
 - 2026-09-11: Added a safe cancel action for failed BOT installation rows. The control-plane verifies and stops the stale remote bootstrap process tree before releasing the row for a clean retry.
+- 2026-09-23: Added worker API backpressure. Worker routes now run blocking store work outside the ASGI event loop and return `429 Retry-After` when the configured admission limit is full, protecting web and health routes during reconnect storms.

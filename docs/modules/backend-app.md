@@ -40,6 +40,7 @@
 - Completed-history retention la control-plane-only va mac dinh 30 ngay. Upload chi dọn `completed`; live chi dọn visible primary `ended` da mat toan bo runtime claim/lease va chi khi backup clone lien ket cung terminal.
 - Inactive BOT khong duoc suy tu history don thuan: `bot_allocation_activity` luu watermark theo `user + worker + workspace/role` de retention va chuyen user khong lam sai so ngay.
 - Failed BOT install chi duoc giai phong sau khi SSH cleanup xac minh process tree bootstrap cu da dung; khong xoa row local truoc de tranh apt/dpkg overlap khi cai lai.
+- Worker API phai co `CONTROL_PLANE_WORKER_API_MAX_INFLIGHT` admission va chay blocking store work ngoai ASGI event loop; qua quota tra `429 Retry-After` thay vi giu socket treo.
 
 ## Known Pitfalls
 - `store.py` dang gom nhieu nghiep vu va la noi de phat sinh drift nhat.
@@ -55,3 +56,4 @@
 - `DEC-056`
 - `DEC-057`
 - `DEC-058`
+- `DEC-059`

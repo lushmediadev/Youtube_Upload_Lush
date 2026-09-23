@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException, Request
+import os
+from threading import BoundedSemaphore
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from ..schemas import (
@@ -22,11 +25,49 @@ from ..schemas import (
 )
 from ..store import store
 
-router = APIRouter(tags=["worker"])
+
+def _worker_api_max_inflight() -> int:
+    raw_value = str(os.getenv("CONTROL_PLANE_WORKER_API_MAX_INFLIGHT", "16")).strip()
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        value = 16
+    return max(1, value)
+
+
+class WorkerApiAdmission:
+    def __init__(self, *, max_inflight: int) -> None:
+        self._semaphore = BoundedSemaphore(max_inflight)
+
+    def acquire_or_raise(self) -> None:
+        if self._semaphore.acquire(blocking=False):
+            return
+        raise HTTPException(
+            status_code=429,
+            detail="Control-plane đang xử lý nhiều request worker. Hãy thử lại sau.",
+            headers={"Retry-After": "3"},
+        )
+
+    def release(self) -> None:
+        self._semaphore.release()
+
+
+_worker_api_admission = WorkerApiAdmission(max_inflight=_worker_api_max_inflight())
+
+
+def _admit_worker_request():
+    _worker_api_admission.acquire_or_raise()
+    try:
+        yield
+    finally:
+        _worker_api_admission.release()
+
+
+router = APIRouter(tags=["worker"], dependencies=[Depends(_admit_worker_request)])
 
 
 @router.post("/workers/register")
-async def register_worker(payload: WorkerRegisterPayload):
+def register_worker(payload: WorkerRegisterPayload):
     try:
         return store.register_worker(payload)
     except ValueError as exc:
@@ -34,7 +75,7 @@ async def register_worker(payload: WorkerRegisterPayload):
 
 
 @router.post("/workers/heartbeat")
-async def heartbeat_worker(payload: WorkerHeartbeatPayload):
+def heartbeat_worker(payload: WorkerHeartbeatPayload):
     try:
         return store.heartbeat_worker(payload)
     except KeyError as exc:
@@ -44,7 +85,7 @@ async def heartbeat_worker(payload: WorkerHeartbeatPayload):
 
 
 @router.post("/workers/claim")
-async def claim_worker_job(payload: WorkerAuthPayload):
+def claim_worker_job(payload: WorkerAuthPayload):
     try:
         worker, job = store.claim_next_job(payload.worker_id, payload.shared_secret)
         return {"ok": True, "worker": worker.model_dump(mode="json"), "job": job.model_dump(mode="json") if job else None}
@@ -55,7 +96,7 @@ async def claim_worker_job(payload: WorkerAuthPayload):
 
 
 @router.post("/workers/browser-sessions/poll")
-async def poll_worker_browser_sessions(payload: WorkerAuthPayload):
+def poll_worker_browser_sessions(payload: WorkerAuthPayload):
     try:
         sessions = store.get_worker_browser_sessions(payload.worker_id, payload.shared_secret)
         cleanup_profiles = store.get_worker_browser_profile_cleanup_tasks(payload.worker_id, payload.shared_secret)
@@ -71,7 +112,7 @@ async def poll_worker_browser_sessions(payload: WorkerAuthPayload):
 
 
 @router.post("/live-workers/register")
-async def register_live_worker(payload: LiveWorkerRegisterPayload):
+def register_live_worker(payload: LiveWorkerRegisterPayload):
     try:
         return store.register_live_worker(payload)
     except ValueError as exc:
@@ -79,7 +120,7 @@ async def register_live_worker(payload: LiveWorkerRegisterPayload):
 
 
 @router.post("/live-workers/heartbeat")
-async def heartbeat_live_worker(payload: LiveWorkerHeartbeatPayload):
+def heartbeat_live_worker(payload: LiveWorkerHeartbeatPayload):
     try:
         return store.heartbeat_live_worker(payload)
     except KeyError as exc:
@@ -89,7 +130,7 @@ async def heartbeat_live_worker(payload: LiveWorkerHeartbeatPayload):
 
 
 @router.post("/live-workers/claim")
-async def claim_live_worker_stream(payload: LiveWorkerAuthPayload):
+def claim_live_worker_stream(payload: LiveWorkerAuthPayload):
     try:
         worker, stream = store.claim_next_live_stream(payload.worker_id, payload.shared_secret)
         return {"ok": True, "worker": worker.model_dump(mode="json"), "stream": stream.model_dump(mode="json") if stream else None}
@@ -100,7 +141,7 @@ async def claim_live_worker_stream(payload: LiveWorkerAuthPayload):
 
 
 @router.post("/workers/browser-profiles/cleanup-ack")
-async def ack_worker_browser_profile_cleanup(payload: WorkerBrowserProfileCleanupAckPayload):
+def ack_worker_browser_profile_cleanup(payload: WorkerBrowserProfileCleanupAckPayload):
     try:
         cleared = store.ack_worker_browser_profile_cleanup_tasks(
             worker_id=payload.worker_id,
@@ -115,7 +156,7 @@ async def ack_worker_browser_profile_cleanup(payload: WorkerBrowserProfileCleanu
 
 
 @router.post("/workers/decommission/poll")
-async def poll_worker_decommission(payload: WorkerAuthPayload):
+def poll_worker_decommission(payload: WorkerAuthPayload):
     try:
         task = store.get_worker_decommission_task(payload.worker_id, payload.shared_secret)
         return {"ok": True, "task": task}
@@ -126,7 +167,7 @@ async def poll_worker_decommission(payload: WorkerAuthPayload):
 
 
 @router.post("/workers/decommission/{operation_id}/complete")
-async def complete_worker_decommission(operation_id: str, payload: WorkerDecommissionCompletePayload):
+def complete_worker_decommission(operation_id: str, payload: WorkerDecommissionCompletePayload):
     try:
         store.complete_worker_decommission_task(
             operation_id=operation_id,
@@ -143,7 +184,7 @@ async def complete_worker_decommission(operation_id: str, payload: WorkerDecommi
 
 
 @router.post("/workers/browser-sessions/{session_id}/sync")
-async def sync_worker_browser_session(session_id: str, payload: WorkerBrowserSessionSyncPayload):
+def sync_worker_browser_session(session_id: str, payload: WorkerBrowserSessionSyncPayload):
     try:
         session = store.sync_worker_browser_session(session_id, payload)
         return {"ok": True, "session": session.model_dump(mode="json")}
@@ -154,7 +195,7 @@ async def sync_worker_browser_session(session_id: str, payload: WorkerBrowserSes
 
 
 @router.post("/workers/jobs/{job_id}/progress")
-async def update_worker_job_progress(job_id: str, payload: WorkerJobProgressPayload):
+def update_worker_job_progress(job_id: str, payload: WorkerJobProgressPayload):
     try:
         return store.update_worker_job_progress(
             job_id=job_id,
@@ -171,7 +212,7 @@ async def update_worker_job_progress(job_id: str, payload: WorkerJobProgressPayl
 
 
 @router.post("/workers/jobs/{job_id}/complete")
-async def complete_worker_job(job_id: str, payload: WorkerJobCompletePayload):
+def complete_worker_job(job_id: str, payload: WorkerJobCompletePayload):
     try:
         return store.complete_worker_job(
             job_id=job_id,
@@ -187,7 +228,7 @@ async def complete_worker_job(job_id: str, payload: WorkerJobCompletePayload):
 
 
 @router.post("/workers/jobs/{job_id}/fail")
-async def fail_worker_job(job_id: str, payload: WorkerJobFailPayload):
+def fail_worker_job(job_id: str, payload: WorkerJobFailPayload):
     try:
         return store.fail_worker_job(
             job_id=job_id,
@@ -202,7 +243,7 @@ async def fail_worker_job(job_id: str, payload: WorkerJobFailPayload):
 
 
 @router.post("/live-workers/streams/{stream_id}/progress")
-async def update_live_stream_progress(stream_id: str, payload: LiveWorkerProgressPayload):
+def update_live_stream_progress(stream_id: str, payload: LiveWorkerProgressPayload):
     try:
         return store.update_live_stream_progress(
             stream_id=stream_id,
@@ -222,7 +263,7 @@ async def update_live_stream_progress(stream_id: str, payload: LiveWorkerProgres
 
 
 @router.get("/live-workers/streams/{stream_id}")
-async def get_live_stream_runtime_state(
+def get_live_stream_runtime_state(
     stream_id: str,
     x_worker_id: str = Header(...),
     x_worker_secret: str = Header(...),
@@ -240,7 +281,7 @@ async def get_live_stream_runtime_state(
 
 
 @router.post("/live-workers/streams/{stream_id}/complete")
-async def complete_live_stream(stream_id: str, payload: LiveWorkerCompletePayload):
+def complete_live_stream(stream_id: str, payload: LiveWorkerCompletePayload):
     try:
         return store.complete_live_stream_runtime(
             stream_id=stream_id,
@@ -255,7 +296,7 @@ async def complete_live_stream(stream_id: str, payload: LiveWorkerCompletePayloa
 
 
 @router.post("/live-workers/streams/{stream_id}/fail")
-async def fail_live_stream(stream_id: str, payload: LiveWorkerFailPayload):
+def fail_live_stream(stream_id: str, payload: LiveWorkerFailPayload):
     try:
         return store.fail_live_stream_runtime(
             stream_id=stream_id,
@@ -270,7 +311,7 @@ async def fail_live_stream(stream_id: str, payload: LiveWorkerFailPayload):
 
 
 @router.get("/workers/jobs/{job_id}/assets/{slot}")
-async def download_worker_job_asset(
+def download_worker_job_asset(
     job_id: str,
     slot: str,
     x_worker_id: str = Header(...),
@@ -294,7 +335,7 @@ async def download_worker_job_asset(
 
 
 @router.get("/workers/jobs/{job_id}/youtube-target")
-async def get_worker_job_youtube_target(
+def get_worker_job_youtube_target(
     job_id: str,
     x_worker_id: str = Header(...),
     x_worker_secret: str = Header(...),
